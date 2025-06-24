@@ -1,8 +1,8 @@
 ---
-- hosts: ravendb_nodes
+- hosts: all
   remote_user: root
   roles:
-    - role: "ravendb_node"
+    - role: ravendb.ravendb.ravendb_node
       vars:
         ravendb_state: present
         ravendb_secured_self_signed_enabled: true

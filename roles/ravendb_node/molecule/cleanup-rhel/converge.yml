@@ -4,7 +4,7 @@
   tasks:
     - name: Include ravendb_node role to install RavenDB
       include_role:
-        name: ravendb_node
+        name: ravendb.ravendb.ravendb_node
       vars:
         molecule: true
         ravendb_state: present
@@ -52,6 +52,6 @@
   tasks:
     - name: Uninstall RavenDB
       include_role:
-        name: ravendb_node
+        name: ravendb.ravendb.ravendb_node
       vars:
         ravendb_state: absent

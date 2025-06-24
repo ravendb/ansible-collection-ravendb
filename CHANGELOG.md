@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) principles and the [Ansible collection changelog format](https://docs.ansible.com/ansible/latest/dev_guide/collections_changelogs.html).
+This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) principles.
 
 The full changelog is maintained in [changelogs/changelog.yml](./changelogs/changelog.yml).
 

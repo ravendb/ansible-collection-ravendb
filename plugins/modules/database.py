@@ -18,6 +18,15 @@ description:
     - Check mode is supported to simulate database creation or deletion without applying changes.
 version_added: "1.0.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
+
+attributes:
+  check_mode:
+    support: full
+  diff_mode:
+    support: none
+  idempotent:
+    support: full
+
 options:
     url:
         description:
