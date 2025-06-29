@@ -14,7 +14,7 @@ Role Variables
 ```
 ravendb_version: latest
 
-ravendb_version_minor: 5.2
+ravendb_version_minor: 6.2
 ravendb_release_channel: stable
 
 ravendb_settings_preset: local_setup (default: None)
@@ -40,5 +40,5 @@ Including an example of how to use your role (for instance, with variables passe
 
     - hosts: all
       roles:
-         - { role: ravendb.ravendb.ravendb_node, ravendb_version: 5.2.2 }
+         - { role: ravendb.ravendb.ravendb_node, ravendb_version: 6.2.6 }
 
