@@ -18,6 +18,13 @@ description:
     - Can create dynamic single-map and multi-map indexes based on a provided index definition.
 version_added: "1.0.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
+
+attributes:
+  check_mode:
+    support: full
+    description: Can run in check_mode and return changed status prediction without modifying target. If not supported, the action will be skipped.
+
+
 options:
     url:
         description:

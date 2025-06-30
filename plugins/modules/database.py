@@ -18,6 +18,12 @@ description:
     - Check mode is supported to simulate database creation or deletion without applying changes.
 version_added: "1.0.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
+
+attributes:
+  check_mode:
+    support: full
+    description: Can run in check_mode and return changed status prediction without modifying target. If not supported, the action will be skipped.
+
 options:
     url:
         description:

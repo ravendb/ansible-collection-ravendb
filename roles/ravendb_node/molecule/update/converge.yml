@@ -5,7 +5,7 @@
     - name: "Install 5.4"
       tags: node_init
       include_role:
-        name: "ravendb_node"
+        name: ravendb.ravendb.ravendb_node
       vars:
           ravendb_state: present
           ravendb_version_minor: 5.4
@@ -47,7 +47,7 @@
     - name: "Update to 6.2"
       tags: node_update
       include_role:
-        name: "ravendb_node"
+        name: ravendb.ravendb.ravendb_node
       vars:
         ravendb_state: present
         ravendb_version_minor: 6.2

@@ -1,4 +1,0 @@
-[ravendb_nodes]
-20.83.176.245  ansible_user=ubuntu ansible_password= ansible_become_password= node_tag=A
-20.83.179.48   ansible_user=ubuntu ansible_password= ansible_become_password= node_tag=B
-172.172.243.70 ansible_user=ubuntu ansible_password= ansible_become_password= node_tag=C

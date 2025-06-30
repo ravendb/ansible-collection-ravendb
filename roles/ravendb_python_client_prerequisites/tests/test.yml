@@ -2,4 +2,4 @@
 - hosts: localhost
   remote_user: root
   roles:
-    - roles/ravendb_python_client_prerequisites
+  - role: ravendb.ravendb.ravendb_python_client_prerequisites

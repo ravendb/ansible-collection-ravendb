@@ -23,5 +23,5 @@ dependencies: {}
 repository: https://github.com/ravendb/ansible-collection-ravendb
 documentation: https://ravendb.net/docs
 homepage: https://ravendb.net
-issues: https://issues.hibernatingrhinos.com
+issues: https://github.com/ravendb/ansible-collection-ravendb/issues
 build_ignore: []
