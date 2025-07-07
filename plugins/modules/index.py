@@ -221,7 +221,10 @@ msg:
 '''
 
 import traceback
-from urllib.parse import urlparse
+try:
+    from urllib.parse import urlparse
+except ImportError:
+    from urlparse import urlparse
 import re
 import os
 import sys
@@ -348,13 +351,13 @@ def handle_absent_state(
         check_mode):
     """Delete the index if it exists. Respect Ansible check mode."""
     if index_name not in existing_index_names:
-        return "ok", False, f"Index '{index_name}' is already absent."
+        return "ok", False, "Index '{}' is already absent.".format(index_name)
 
     if check_mode:
-        return "ok", True, f"Index '{index_name}' would be deleted."
+        return "ok", True, "Index '{}' would be deleted.".format(index_name)
 
     database_maintenance.send(DeleteIndexOperation(index_name))
-    return "ok", True, f"Index '{index_name}' deleted successfully."
+    return "ok", True, "Index '{}' deleted successfully.".format(index_name)
 
 
 def handle_present_state(
@@ -381,16 +384,16 @@ def handle_present_state(
                     desired_mode,
                     cluster_wide,
                     check_mode)
-            return "ok", False, f"Index '{index_name}' already exists and matches definition."
+            return "ok", False, "Index '{}' already exists and matches definition.".format(index_name)
 
     if check_mode:
-        return "ok", True, f"Index '{index_name}' would be created."
+        return "ok", True, "Index '{}' would be created.".format(index_name)
 
     create_index(store, database_name, index_name, index_definition)
     if desired_mode:
         apply_mode(store, index_name, desired_mode, cluster_wide, check_mode)
 
-    return "ok", True, f"Index '{index_name}' created successfully."
+    return "ok", True, "Index '{}' created successfully.".format(index_name)
 
 
 def handle_mode_only(
@@ -402,7 +405,7 @@ def handle_mode_only(
         existing_index_names):
     """Apply only the desired index mode if the index already exists."""
     if index_name not in existing_index_names:
-        return "error", False, f"Index '{index_name}' does not exist. Cannot apply mode."
+        return "error", False, "Index '{}' does not exist. Cannot apply mode.".format(index_name)
 
     return apply_mode(
         store,
@@ -441,23 +444,23 @@ def index_matches(existing_index, index_definition):
 def enable_index(store, index_name, cluster_wide, check_mode):
     """Enable a RavenDB index, optionally cluster-wide. Respect check mode."""
     if check_mode:
-        return "ok", True, f"Index '{index_name}' would be enabled {' cluster-wide' if cluster_wide else ''}."
+        return "ok", True, "Index '{}' would be enabled{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
 
     enable_index_operation = EnableIndexOperation(index_name, cluster_wide)
     store.maintenance.send(enable_index_operation)
 
-    return "ok", True, f"Index '{index_name}' enabled successfully {' cluster-wide' if cluster_wide else ''}."
+    return "ok", True, "Index '{}' enabled successfully{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
 
 
 def disable_index(store, index_name, cluster_wide, check_mode):
     """Disable a RavenDB index, optionally cluster-wide. Respect check mode."""
     if check_mode:
-        return "ok", True, f"Index '{index_name}' would be disabled {' cluster-wide' if cluster_wide else ''}."
+        return "ok", True, "Index '{}' would be disabled{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
 
     disable_index_operation = DisableIndexOperation(index_name, cluster_wide)
     store.maintenance.send(disable_index_operation)
 
-    return "ok", True, f"Index '{index_name}' disbaled successfully {' cluster-wide' if cluster_wide else ''}."
+    return "ok", True, "Index '{}' disbaled successfully{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
 
 
 def resume_index(store, index_name, check_mode):
@@ -465,15 +468,15 @@ def resume_index(store, index_name, check_mode):
     indexing_status = store.maintenance.send(GetIndexingStatusOperation())
     index = [x for x in indexing_status.indexes if x.name == index_name][0]
     if index.status == IndexRunningStatus.RUNNING:
-        return "ok", False, f"Index '{index_name}' is already resumed and executing."
+        return "ok", False, "Index '{}' is already resumed and executing.".format(index_name)
 
     if check_mode:
-        return "ok", True, f"Index '{index_name}' would be resumed."
+        return "ok", True, "Index '{}' would be resumed.".format(index_name)
 
     resume_index_operation = StartIndexOperation(index_name)
     store.maintenance.send(resume_index_operation)
 
-    return "ok", True, f"Index '{index_name}' resumed successfully."
+    return "ok", True, "Index '{}' resumed successfully.".format(index_name)
 
 
 def pause_index(store, index_name, check_mode):
@@ -481,26 +484,26 @@ def pause_index(store, index_name, check_mode):
     indexing_status = store.maintenance.send(GetIndexingStatusOperation())
     index = [x for x in indexing_status.indexes if x.name == index_name][0]
     if index.status == IndexRunningStatus.PAUSED:
-        return "ok", False, f"Index '{index_name}' is already paused."
+        return "ok", False, "Index '{}' is already paused.".format(index_name)
 
     if check_mode:
-        return "ok", True, f"Index '{index_name}' would be paused."
+        return "ok", True, "Index '{}' would be paused.".format(index_name)
 
     pause_index_operation = StopIndexOperation(index_name)
     store.maintenance.send(pause_index_operation)
 
-    return "ok", True, f"Index '{index_name}' paused successfully."
+    return "ok", True, "Index '{}' paused successfully.".format(index_name)
 
 
 def reset_index(store, index_name, check_mode):
     """Reset an existing index. Respect check mode."""
     if check_mode:
-        return "ok", True, f"Index '{index_name}' would be reset."
+        return "ok", True, "Index '{}' would be reset.".format(index_name)
 
     reset_index_operation = ResetIndexOperation(index_name)
     store.maintenance.send(reset_index_operation)
 
-    return "ok", True, f"Index '{index_name}' reset successfully."
+    return "ok", True, "Index '{}' reset successfully.".format(index_name)
 
 
 def apply_mode(store, index_name, mode, cluster_wide, check_mode):
@@ -516,7 +519,7 @@ def apply_mode(store, index_name, mode, cluster_wide, check_mode):
     elif mode == 'reset':
         return reset_index(store, index_name, check_mode)
     else:
-        return "error", False, f"Unsupported mode '{mode}' specified."
+        return "error", False, "Unsupported mode '{}' specified.".format(mode)
 
 
 def is_valid_url(url):
@@ -544,7 +547,7 @@ def validate_paths(*paths):
     """Check if all provided file paths exist. Return (True, None) or (False, error message)."""
     for path in paths:
         if path and not os.path.isfile(path):
-            return False, f"Path does not exist: {path}"
+            return False, "Path does not exist: {}".format(path)
     return True, None
 
 
@@ -592,15 +595,15 @@ def main():
     cluster_wide = module.params['cluster_wide']
 
     if not is_valid_url(url):
-        module.fail_json(msg=f"Invalid URL: {url}")
+        module.fail_json(msg="Invalid URL: {}".format(url))
 
     if not is_valid_name(database_name):
         module.fail_json(
-            msg=f"Invalid database name: {database_name}. Only letters, numbers, dashes, and underscores are allowed.")
+            msg="Invalid database name: {}. Only letters, numbers, dashes, and underscores are allowed.".format(database_name))
 
     if not is_valid_name(index_name):
         module.fail_json(
-            msg=f"Invalid index name: {index_name}. Only letters, numbers, dashes, and underscores are allowed.")
+            msg="Invalid index name: {}. Only letters, numbers, dashes, and underscores are allowed.".format(index_name))
 
     if not is_valid_dict(index_definition):
         module.fail_json(
@@ -612,15 +615,15 @@ def main():
 
     if not is_valid_state(state):
         module.fail_json(
-            msg=f"Invalid state: {state}. Must be 'present' or 'absent'.")
+            msg="Invalid state: {}. Must be 'present' or 'absent'.".format(state))
 
     if not is_valid_mode(mode):
         module.fail_json(
-            msg=f"Invalid mode: {mode}. Must be one of 'resumed', 'paused', 'enabled', 'disabled', 'reset'.")
+            msg="Invalid mode: {}. Must be one of 'resumed', 'paused', 'enabled', 'disabled', 'reset'.".format(mode))
 
     if not is_valid_bool(cluster_wide):
         module.fail_json(
-            msg=f"Invalid cluster_wide flag: {cluster_wide}. Must be a boolean.")
+            msg="Invalid cluster_wide flag: {}. Must be a boolean.".format(cluster_wide))
 
     try:
         store = initialize_ravendb_store(module.params)
@@ -635,9 +638,9 @@ def main():
             module.exit_json(changed=changed, msg=message)
 
     except RavenException as e:
-        module.fail_json(msg=f"RavenDB operation failed: {str(e)}")
+        module.fail_json(msg="RavenDB operation failed: {}".format(str(e)))
     except Exception as e:
-        module.fail_json(msg=f"An unexpected error occurred: {str(e)}")
+        module.fail_json(msg="An unexpected error occurred: {}".format(str(e)))
     finally:
         if 'store' in locals():
             store.close()

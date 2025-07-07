@@ -149,7 +149,10 @@ msg:
 import traceback
 import os
 import re
-from urllib.parse import urlparse
+try:
+    from urllib.parse import urlparse
+except ImportError:
+    from urlparse import urlparse
 from ansible.module_utils.basic import AnsibleModule, missing_required_lib
 
 LIB_IMP_ERR = None
@@ -188,10 +191,10 @@ def handle_present_state(store, database_name, replication_factor, check_mode):
     existing_databases = get_existing_databases(store)
 
     if database_name in existing_databases:
-        return False, f"Database '{database_name}' already exists."
+        return False, "Database '{}' already exists.".format(database_name)
 
     if check_mode:
-        return True, f"Database '{database_name}' would be created."
+        return True, "Database '{}' would be created.".format(database_name)
 
     database_record = DatabaseRecord(database_name)
     create_database_operation = CreateDatabaseOperation(
@@ -199,7 +202,7 @@ def handle_present_state(store, database_name, replication_factor, check_mode):
         replication_factor=replication_factor
     )
     store.maintenance.server.send(create_database_operation)
-    return True, f"Database '{database_name}' created successfully."
+    return True, "Database '{}' created successfully.".format(database_name)
 
 
 def handle_absent_state(store, database_name, check_mode):
@@ -210,14 +213,14 @@ def handle_absent_state(store, database_name, check_mode):
     existing_databases = get_existing_databases(store)
 
     if database_name not in existing_databases:
-        return False, f"Database '{database_name}' does not exist."
+        return False, "Database '{}' does not exist.".format(database_name)
 
     if check_mode:
-        return True, f"Database '{database_name}' would be deleted."
+        return True, "Database '{}' would be deleted.".format(database_name)
 
     delete_database_operation = DeleteDatabaseOperation(database_name)
     store.maintenance.server.send(delete_database_operation)
-    return True, f"Database '{database_name}' deleted successfully."
+    return True, "Database '{}' deleted successfully.".format(database_name)
 
 
 def is_valid_url(url):
@@ -248,7 +251,7 @@ def validate_paths(*paths):
     """
     for path in paths:
         if path and not os.path.isfile(path):
-            return False, f"Path does not exist: {path}"
+            return False, "Path does not exist: {}".format(path)
     return True, None
 
 
@@ -286,15 +289,15 @@ def main():
     desired_state = module.params['state']
 
     if not is_valid_url(url):
-        module.fail_json(msg=f"Invalid URL: {url}")
+        module.fail_json(msg="Invalid URL: {}".format(url))
 
     if not is_valid_database_name(database_name):
         module.fail_json(
-            msg=f"Invalid database name: {database_name}. Only letters, numbers, dashes, and underscores are allowed.")
+            msg="Invalid database name: {}. Only letters, numbers, dashes, and underscores are allowed.".format(database_name))
 
     if not is_valid_replication_factor(replication_factor):
         module.fail_json(
-            msg=f"Invalid replication factor: {replication_factor}. Must be a positive integer.")
+            msg="Invalid replication factor: {}. Must be a positive integer.".format(replication_factor))
 
     valid, error_msg = validate_paths(certificate_path, ca_cert_path)
     if not valid:
@@ -302,7 +305,7 @@ def main():
 
     if not is_valid_state(desired_state):
         module.fail_json(
-            msg=f"Invalid state: {desired_state}. Must be 'present' or 'absent'.")
+            msg="Invalid state: {}. Must be 'present' or 'absent'.".format(desired_state))
 
     try:
         store = create_store(url, certificate_path, ca_cert_path)
@@ -318,9 +321,9 @@ def main():
         module.exit_json(changed=changed, msg=message)
 
     except RavenException as e:
-        module.fail_json(msg=f"RavenDB operation failed: {str(e)}")
+        module.fail_json(msg="RavenDB operation failed: {}".format(str(e)))
     except Exception as e:
-        module.fail_json(msg=f"An unexpected error occurred: {str(e)}")
+        module.fail_json(msg="An unexpected error occurred: {}".format(str(e)))
     finally:
         if 'store' in locals():
             store.close()
