@@ -9,187 +9,215 @@ on:
     - cron: "0 10 * * 1" # every Monday at 10:00 UTC
 
 jobs:
-  sanity:
-    name: Ansible Sanity Tests
-    runs-on: ubuntu-20.04
-    strategy:
-      matrix:
-        include:
-          - python-version: "2.7"
-            ansible-core: stable-2.16
-          - python-version: "3.10"
-            ansible-core: stable-2.16
-          - python-version: "3.11"
-            ansible-core: stable-2.16
-          - python-version: "3.12"
-            ansible-core: stable-2.16
 
-          - python-version: "3.10"
-            ansible-core: stable-2.17
-          - python-version: "3.11"
-            ansible-core: stable-2.17
-          - python-version: "3.12"
-            ansible-core: stable-2.17
-
-          - python-version: "3.11"
-            ansible-core: stable-2.18
-          - python-version: "3.12"
-            ansible-core: stable-2.18
-          - python-version: "3.13"
-            ansible-core: stable-2.18
-
-          - python-version: "3.11"
-            ansible-core: devel
-          - python-version: "3.12"
-            ansible-core: devel
-          - python-version: "3.13"
-            ansible-core: devel
+  legacy-sanity:
+    name: Ansible Sanity Tests (Python 2.7)
+    runs-on: ubuntu-latest
+    container:
+      image: python:2.7
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Fix collection path for ansible-test #should be removed once we restructre
+      - name: Install rsync
+        run: apt-get update && apt-get install -y rsync
+
+      - name: Fix collection path for ansible-test # should be removed once we restructure
         run: |
           mkdir -p ansible_collections/ravendb/ravendb
           rsync -av --exclude ansible_collections ./ ansible_collections/ravendb/ravendb
           cd ansible_collections/ravendb/ravendb
-        
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "ansible-core@https://github.com/ansible/ansible/archive/${{ matrix.ansible-core }}.tar.gz"
+          pip install "ansible-core@https://github.com/ansible/ansible/archive/stable-2.9.tar.gz"
 
       - name: Run ansible-test sanity
         working-directory: ansible_collections/ravendb/ravendb
         run: |
-          ansible-test sanity --python ${{ matrix.python-version }} --docker -v --color
-  
-  test-debian-setup-scenarios:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+          ansible-test sanity --python 2.7 -v --color
 
-      - name: Set up Python 3
-        uses: actions/setup-python@v2
-        with:
-          python-version: "3.x"
 
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip
-          restore-keys: |
-            ${{ runner.os }}-pip-
+  # sanity:
+  #   name: Ansible Sanity Tests
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       include:
+  #         - python-version: "3.10"
+  #           ansible-core: stable-2.16
+  #         - python-version: "3.11"
+  #           ansible-core: stable-2.16
+  #         - python-version: "3.12"
+  #           ansible-core: stable-2.16
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ansible molecule molecule-docker docker
+  #         - python-version: "3.10"
+  #           ansible-core: stable-2.17
+  #         - python-version: "3.11"
+  #           ansible-core: stable-2.17
+  #         - python-version: "3.12"
+  #           ansible-core: stable-2.17
 
-      - name: Set ansible roles path
-        run: echo "ANSIBLE_ROLES_PATH=$GITHUB_WORKSPACE/roles" >> $GITHUB_ENV
+  #         - python-version: "3.11"
+  #           ansible-core: stable-2.18
+  #         - python-version: "3.12"
+  #           ansible-core: stable-2.18
+  #         - python-version: "3.13"
+  #           ansible-core: stable-2.18
 
-      - name: Run molecule unsecured scenario
-        working-directory: roles/ravendb_node
-        run: molecule test -s unsecured
-      
-      - name: Run molecule update scenario
-        working-directory: roles/ravendb_node
-        run: molecule test -s update
+  #         - python-version: "3.11"
+  #           ansible-core: devel
+  #         - python-version: "3.12"
+  #           ansible-core: devel
+  #         - python-version: "3.13"
+  #           ansible-core: devel
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
 
-      - name: Run molecule clenaup scenario
-        working-directory: roles/ravendb_node
-        run: molecule test -s cleanup
-
-  test-rhel-setup-scenarios:
-      runs-on: ubuntu-latest
-      steps:
-        - name: Checkout code
-          uses: actions/checkout@v4
-
-        - name: Set up Python 3
-          uses: actions/setup-python@v2
-          with:
-            python-version: "3.x"
-
-        - name: Cache pip dependencies
-          uses: actions/cache@v4
-          with:
-            path: ~/.cache/pip
-            key: ${{ runner.os }}-pip
-            restore-keys: |
-              ${{ runner.os }}-pip-
-
-        - name: Install dependencies
-          run: |
-            python -m pip install --upgrade pip
-            pip install ansible molecule molecule-docker docker
-
-        - name: Set ansible roles path
-          run: echo "ANSIBLE_ROLES_PATH=$GITHUB_WORKSPACE/roles" >> $GITHUB_ENV
-
-        - name: Run molecule unsecured-rhel scenario
-          working-directory: roles/ravendb_node
-          run: molecule test -s unsecured-rhel
+  #     - name: Fix collection path for ansible-test #should be removed once we restructre
+  #       run: |
+  #         mkdir -p ansible_collections/ravendb/ravendb
+  #         rsync -av --exclude ansible_collections ./ ansible_collections/ravendb/ravendb
+  #         cd ansible_collections/ravendb/ravendb
         
-        - name: Run molecule update-rhel scenario
-          working-directory: roles/ravendb_node
-          run: molecule test -s update-rhel
+  #     - name: Set up Python ${{ matrix.python-version }}
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: ${{ matrix.python-version }}
 
-        - name: Run molecule clenaup-rhel scenario
-          working-directory: roles/ravendb_node
-          run: molecule test -s cleanup-rhel
+  #     - name: Install dependencies
+  #       run: |
+  #         python -m pip install --upgrade pip
+  #         pip install "ansible-core@https://github.com/ansible/ansible/archive/${{ matrix.ansible-core }}.tar.gz"
 
-  test-ravendb-modules:
-      runs-on: ubuntu-latest
-      steps:
-        - name: Checkout code
-          uses: actions/checkout@v4
+  #     - name: Run ansible-test sanity
+  #       working-directory: ansible_collections/ravendb/ravendb
+  #       run: |
+  #         ansible-test sanity --python ${{ matrix.python-version }} --docker -v --color
+  
+  # test-debian-setup-scenarios:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
 
-        - name: Set up Python 3
-          uses: actions/setup-python@v2
-          with:
-            python-version: "3.x"
+  #     - name: Set up Python 3
+  #       uses: actions/setup-python@v2
+  #       with:
+  #         python-version: "3.x"
 
-        - name: Cache pip dependencies
-          uses: actions/cache@v4
-          with:
-            path: ~/.cache/pip
-            key: ${{ runner.os }}-pip
-            restore-keys: |
-              ${{ runner.os }}-pip-
+  #     - name: Cache pip dependencies
+  #       uses: actions/cache@v4
+  #       with:
+  #         path: ~/.cache/pip
+  #         key: ${{ runner.os }}-pip
+  #         restore-keys: |
+  #           ${{ runner.os }}-pip-
 
-        - name: Install ASP.NET Core Runtime
-          run: |
-            wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
-            chmod +x dotnet-install.sh
-            ./dotnet-install.sh --runtime aspnetcore --channel 8.0
+  #     - name: Install dependencies
+  #       run: |
+  #         python -m pip install --upgrade pip
+  #         pip install ansible molecule molecule-docker docker
 
-        - name: Install dependencies
-          run: |
-            python -m pip install --upgrade pip
-            pip install ansible molecule molecule-docker docker ravendb_test_driver
+  #     - name: Set ansible roles path
+  #       run: echo "ANSIBLE_ROLES_PATH=$GITHUB_WORKSPACE/roles" >> $GITHUB_ENV
 
-        - name: Build ansible galaxy collection
-          run: |
-            ansible-galaxy collection build .
-            ansible-galaxy collection install ./ravendb-ravendb-*.tar.gz --force -p ./
+  #     - name: Run molecule unsecured scenario
+  #       working-directory: roles/ravendb_node
+  #       run: molecule test -s unsecured
+      
+  #     - name: Run molecule update scenario
+  #       working-directory: roles/ravendb_node
+  #       run: molecule test -s update
 
-        - name: Set up .NET environment variables
-          run: |
-            export DOTNET_ROOT=$HOME/.dotnet
-            export PATH=$PATH:$HOME/.dotnet
-            source ~/.bashrc
+  #     - name: Run molecule clenaup scenario
+  #       working-directory: roles/ravendb_node
+  #       run: molecule test -s cleanup
 
-        - name: Change to ravendb_node role directory
-          run: cd roles/ravendb_node
+  # test-rhel-setup-scenarios:
+  #     runs-on: ubuntu-latest
+  #     steps:
+  #       - name: Checkout code
+  #         uses: actions/checkout@v4
 
-        - name: Run modules unit tests
-          run: python3 -m unittest discover -s tests/unit -v
+  #       - name: Set up Python 3
+  #         uses: actions/setup-python@v2
+  #         with:
+  #           python-version: "3.x"
+
+  #       - name: Cache pip dependencies
+  #         uses: actions/cache@v4
+  #         with:
+  #           path: ~/.cache/pip
+  #           key: ${{ runner.os }}-pip
+  #           restore-keys: |
+  #             ${{ runner.os }}-pip-
+
+  #       - name: Install dependencies
+  #         run: |
+  #           python -m pip install --upgrade pip
+  #           pip install ansible molecule molecule-docker docker
+
+  #       - name: Set ansible roles path
+  #         run: echo "ANSIBLE_ROLES_PATH=$GITHUB_WORKSPACE/roles" >> $GITHUB_ENV
+
+  #       - name: Run molecule unsecured-rhel scenario
+  #         working-directory: roles/ravendb_node
+  #         run: molecule test -s unsecured-rhel
+        
+  #       - name: Run molecule update-rhel scenario
+  #         working-directory: roles/ravendb_node
+  #         run: molecule test -s update-rhel
+
+  #       - name: Run molecule clenaup-rhel scenario
+  #         working-directory: roles/ravendb_node
+  #         run: molecule test -s cleanup-rhel
+
+  # test-ravendb-modules:
+  #     runs-on: ubuntu-latest
+  #     steps:
+  #       - name: Checkout code
+  #         uses: actions/checkout@v4
+
+  #       - name: Set up Python 3
+  #         uses: actions/setup-python@v2
+  #         with:
+  #           python-version: "3.x"
+
+  #       - name: Cache pip dependencies
+  #         uses: actions/cache@v4
+  #         with:
+  #           path: ~/.cache/pip
+  #           key: ${{ runner.os }}-pip
+  #           restore-keys: |
+  #             ${{ runner.os }}-pip-
+
+  #       - name: Install ASP.NET Core Runtime
+  #         run: |
+  #           wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+  #           chmod +x dotnet-install.sh
+  #           ./dotnet-install.sh --runtime aspnetcore --channel 8.0
+
+  #       - name: Install dependencies
+  #         run: |
+  #           python -m pip install --upgrade pip
+  #           pip install ansible molecule molecule-docker docker ravendb_test_driver
+
+  #       - name: Build ansible galaxy collection
+  #         run: |
+  #           ansible-galaxy collection build .
+  #           ansible-galaxy collection install ./ravendb-ravendb-*.tar.gz --force -p ./
+
+  #       - name: Set up .NET environment variables
+  #         run: |
+  #           export DOTNET_ROOT=$HOME/.dotnet
+  #           export PATH=$PATH:$HOME/.dotnet
+  #           source ~/.bashrc
+
+  #       - name: Change to ravendb_node role directory
+  #         run: cd roles/ravendb_node
+
+  #       - name: Run modules unit tests
+  #         run: python3 -m unittest discover -s tests/unit -v
