@@ -87,7 +87,10 @@ msg:
     version_added: "1.0.0"
 '''
 
-from urllib.parse import urlparse
+try:
+    from urllib.parse import urlparse
+except ImportError:
+    from urlparse import urlparse
 from ansible.module_utils.basic import AnsibleModule
 
 
@@ -125,7 +128,7 @@ def add_node(node, check_mode):
         return {"changed": False, "msg": "Leader URL must be specified"}
 
     if not is_valid_url(leader_url):
-        return {"changed": False, "msg": f"Invalid Leader URL: {leader_url}"}
+        return {"changed": False, "msg": "Invalid Leader URL: {}".format(leader_url)}
 
     if not is_valid_tag(tag):
         return {
@@ -142,10 +145,10 @@ def add_node(node, check_mode):
     if check_mode:
         return {
             "changed": True,
-            "msg": f"Node {tag} would be added to the cluster"}
+            "msg": "Node {} would be added to the cluster".format(tag)}
     try:
 
-        add_url = f"{leader_url}/admin/cluster/node?url={url}&tag={tag}"
+        add_url = "{}/admin/cluster/node?url={}&tag={}".format(leader_url, url, tag)
         if is_watcher:
             add_url += "&watcher=true"
 
@@ -157,16 +160,16 @@ def add_node(node, check_mode):
             "Message", response.text) if response.content else str(e)
         return {
             "changed": False,
-            "msg": f"Failed to add node {tag}",
+            "msg": "Failed to add node {}".format(tag),
             "error": error_message}
 
     except requests.RequestException as e:
         return {
             "changed": False,
-            "msg": f"Failed to add node {tag}",
+            "msg": "Failed to add node {}".format(tag),
             "error": str(e)}
 
-    return {"changed": True, "msg": f"Node {tag} added to the cluster"}
+    return {"changed": True, "msg": "Node {} added to the cluster".format(tag)}
 
 
 def main():
@@ -182,7 +185,7 @@ def main():
         module.exit_json(changed=changed, msg=message)
 
     except Exception as e:
-        module.fail_json(msg=f"An error occurred: {str(e)}")
+        module.fail_json(msg="An error occurred: {}".format(str(e)))
 
 
 if __name__ == '__main__':

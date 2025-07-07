@@ -37,7 +37,7 @@ class TestDBStateValidator(TestCase):
         changed, message = handle_present_state(
             store, db_name, replication_factor, check_mode)
         self.assertTrue(changed)
-        self.assertIn(f"Database '{db_name}' created successfully.", message)
+        self.assertIn("Database '{}' created successfully.".format(db_name), message)
 
     def test_create_already_created_database(self):
 
@@ -54,7 +54,7 @@ class TestDBStateValidator(TestCase):
             store, db_name, replication_factor, check_mode)
 
         self.assertFalse(changed)
-        self.assertIn(f"Database '{db_name}' already exists.", message)
+        self.assertIn("Database '{}' already exists.".format(db_name), message)
 
     def test_delete_database(self):
 
@@ -70,7 +70,7 @@ class TestDBStateValidator(TestCase):
         changed, message = handle_absent_state(store, db_name, check_mode)
 
         self.assertTrue(changed)
-        self.assertIn(f"Database '{db_name}' deleted successfully.", message)
+        self.assertIn("Database '{}' deleted successfully.".format(db_name), message)
 
     def test_delete_non_exist_database(self):
 
@@ -83,7 +83,7 @@ class TestDBStateValidator(TestCase):
         changed, message = handle_absent_state(store, db_name, check_mode)
 
         self.assertFalse(changed)
-        self.assertIn(f"Database '{db_name}' does not exist.", message)
+        self.assertIn("Database '{}' does not exist.".format(db_name), message)
 
 
 class TestValidationFunctions(TestCase):

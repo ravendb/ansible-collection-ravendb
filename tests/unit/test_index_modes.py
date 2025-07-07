@@ -55,7 +55,7 @@ class TestIndexModes(TestCase):
         self.assertEqual(status, "ok")
         self.assertTrue(changed)
         self.assertIn(
-            f"Index '{cls.index_name}' disbaled successfully",
+            "Index '{}' disbaled successfully".format(cls.index_name),
             message)
 
     def test_enable_index(self):
@@ -71,7 +71,7 @@ class TestIndexModes(TestCase):
         self.assertEqual(status, "ok")
         self.assertTrue(changed)
         self.assertIn(
-            f"Index '{cls.index_name}' enabled successfully",
+            "Index '{}' enabled successfully".format(cls.index_name),
             message)
 
     def test_pause_index(self):
@@ -85,7 +85,7 @@ class TestIndexModes(TestCase):
             store, cls.index_name, check_mode=False)
         self.assertEqual(status, "ok")
         self.assertTrue(changed)
-        self.assertIn(f"Index '{cls.index_name}' paused successfully", message)
+        self.assertIn("Index '{}' paused successfully".format(cls.index_name), message)
 
         indexing_status = store.maintenance.send(GetIndexingStatusOperation())
         paused_index = [
@@ -103,7 +103,7 @@ class TestIndexModes(TestCase):
             store, cls.index_name, check_mode=False)
         self.assertEqual(status, "ok")
         self.assertFalse(changed)
-        self.assertIn(f"Index '{cls.index_name}' is already paused", message)
+        self.assertIn("Index '{}' is already paused".format(cls.index_name), message)
 
         indexing_status = store.maintenance.send(GetIndexingStatusOperation())
         paused_index = [
@@ -122,7 +122,7 @@ class TestIndexModes(TestCase):
         self.assertEqual(status, "ok")
         self.assertTrue(changed)
         self.assertIn(
-            f"Index '{cls.index_name}' resumed successfully",
+            "Index '{}' resumed successfully".format(cls.index_name),
             message)
 
         indexing_status = store.maintenance.send(GetIndexingStatusOperation())
@@ -144,7 +144,7 @@ class TestIndexModes(TestCase):
         self.assertEqual(status, "ok")
         self.assertFalse(changed)
         self.assertIn(
-            f"Index '{cls.index_name}' is already resumed and executing",
+            "Index '{}' is already resumed and executing".format(cls.index_name),
             message)
 
         indexing_status = store.maintenance.send(GetIndexingStatusOperation())
@@ -162,4 +162,4 @@ class TestIndexModes(TestCase):
             store, cls.index_name, check_mode=False)
         self.assertEqual(status, "ok")
         self.assertTrue(changed)
-        self.assertIn(f"Index '{cls.index_name}' reset successfully", message)
+        self.assertIn("Index '{}' reset successfully".format(cls.index_name), message)
