@@ -65,6 +65,13 @@ jobs:
             ansible-core: stable-2.18
 
           - python-version: "3.11"
+            ansible-core: stable-2.19
+          - python-version: "3.12"
+            ansible-core: stable-2.19
+          - python-version: "3.13"
+            ansible-core: stable-2.19
+
+          - python-version: "3.11"
             ansible-core: devel
           - python-version: "3.12"
             ansible-core: devel
