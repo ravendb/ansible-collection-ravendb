@@ -18,13 +18,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install rsync
-        run: apt-get update && apt-get install -y rsync
-
       - name: Fix collection path for ansible-test # should be removed once we restructure
         run: |
           mkdir -p ansible_collections/ravendb/ravendb
-          rsync -av --exclude ansible_collections ./ ansible_collections/ravendb/ravendb
+          tar --exclude=ansible_collections -cf - . | tar -C ansible_collections/ravendb/ravendb -xf -
           cd ansible_collections/ravendb/ravendb
 
       - name: Install dependencies
