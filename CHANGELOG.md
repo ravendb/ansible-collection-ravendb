@@ -16,3 +16,13 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
   - `ravendb.ravendb.database` for managing RavenDB databases.
   - `ravendb.ravendb.index` for managing RavenDB indexes and index modes.
   - `ravendb.ravendb.node` for adding nodes to a RavenDB cluster.
+
+## [1.0.1] - 2025-07-15
+
+### Fixed
+- `galaxy.yml` now points to the collection repo's issue tracker.
+- Removed broken external changelog link in `CHANGELOG.md`.
+- Added `attributes:` with `check_mode` support to all modules.
+- Replaced partial module names in roles/playbooks with full FQCNs.
+- Removed leftover files: `ansible.cfg`, `inventories/`, etc.
+- CI matrix now includes `stable-2.18`, `stable-2.19`, and Python 2.7 testing.

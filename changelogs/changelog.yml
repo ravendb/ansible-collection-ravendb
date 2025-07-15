@@ -11,3 +11,15 @@ releases:
               - "`ravendb.ravendb.database` to manage RavenDB databases."
               - "`ravendb.ravendb.index` to manage RavenDB indexes and index modes."
               - "`ravendb.ravendb.node` to add nodes to a RavenDB cluster."
+
+  - name: "Compliance & Cosmetic Updates"
+    tag: "v1.0.1"
+    version: "1.0.1"
+    changes:
+      - fixed:
+          - Updated `issues` field in `galaxy.yml` to point to the collection repo.
+          - Removed broken Keep a Changelog URL in `CHANGELOG.md`.
+          - Added `attributes` section with `check_mode` support to all modules.
+          - Fixed usage of FQCNs in roles and playbooks.
+          - Cleaned up unnecessary files - `ansible.cfg`, `inventories/`, etc.
+          - Expanded CI matrix: added `stable-2.18`, `stable-2.19`, and `Python 2.7` support.
