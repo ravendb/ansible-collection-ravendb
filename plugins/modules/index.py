@@ -19,11 +19,8 @@ description:
 version_added: "1.0.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
 
-attributes:
-  check_mode:
-    support: full
-    description: Can run in check_mode and return changed status prediction without modifying target. If not supported, the action will be skipped.
-
+extends_documentation_fragment:
+- ravendb.ravendb.ravendb
 
 options:
     url:
@@ -86,18 +83,11 @@ options:
         required: false
         type: bool
         default: false
-requirements:
-    - python >= 3.9
-    - ravendb python client
-    - ASP.NET Core Runtime
-    - Role ravendb.ravendb.ravendb_python_client_prerequisites must be installed before using this module.
+
 seealso:
     - name: RavenDB documentation
       description: Official RavenDB documentation
       link: https://ravendb.net/docs
-notes:
-  - The role C(ravendb.ravendb.ravendb_python_client_prerequisites) must be applied before using this module.
-  - Requires the ASP.NET Core Runtime to be installed on the target system.
 '''
 
 EXAMPLES = '''
@@ -232,6 +222,7 @@ from ansible.module_utils.basic import AnsibleModule, missing_required_lib
 
 LIB_IMP_ERR = None
 try:
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.common_args import ravendb_common_argument_spec
     from ravendb import DocumentStore, AbstractIndexCreationTask
     from ravendb.documents.indexes.abstract_index_creation_tasks import AbstractMultiMapIndexCreationTask
     from ravendb.documents.operations.indexes import (
@@ -562,13 +553,10 @@ def is_valid_mode(mode):
 
 
 def main():
-    module_args = dict(
-        url=dict(type='str', required=True),
-        database_name=dict(type='str', required=True),
+    module_args = ravendb_common_argument_spec()
+    module_args.update(
         index_name=dict(type='str', required=True),
         index_definition=dict(type='dict', required=False),
-        certificate_path=dict(type='str', required=False),
-        ca_cert_path=dict(type='str', required=False),
         state=dict(type='str', choices=['present', 'absent'], required=False),
         mode=dict(type='str', choices=['resumed', 'paused', 'enabled', 'disabled', 'reset'], required=False),
         cluster_wide=dict(type='bool', default=False)

@@ -19,24 +19,10 @@ description:
 version_added: "1.0.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
 
-attributes:
-  check_mode:
-    support: full
-    description: Can run in check_mode and return changed status prediction without modifying target. If not supported, the action will be skipped.
+extends_documentation_fragment:
+- ravendb.ravendb.ravendb
 
 options:
-    url:
-        description:
-            - URL of the RavenDB server.
-            - Must include the scheme (http or https), hostname and port.
-        required: true
-        type: str
-    database_name:
-        description:
-            - Name of the database to be created or deleted.
-            - Must be a valid name containing only letters, numbers, dashes, and underscores.
-        required: true
-        type: str
     replication_factor:
         description:
             - Number of server nodes to replicate the database to.
@@ -45,18 +31,6 @@ options:
         required: false
         default: 1
         type: int
-    certificate_path:
-        description:
-            - Path to a client certificate (PEM format) for secured communication.
-            - Optional, but recommended for secure connections.
-        required: false
-        type: str
-    ca_cert_path:
-        description:
-            - Path to a trusted CA certificate file to verify the RavenDB server's certificate.
-            - Optional if the server certificate is trusted by system CA store.
-        required: false
-        type: str
     state:
         description:
             - Desired state of the database.
@@ -68,18 +42,12 @@ options:
           - present
           - absent
         default: present
-requirements:
-    - python >= 3.9
-    - ravendb python client
-    - ASP.NET Core Runtime
-    - Role ravendb.ravendb.ravendb_python_client_prerequisites must be installed before using this module.
+
 seealso:
   - name: RavenDB documentation
     description: Official RavenDB documentation
     link: https://ravendb.net/docs
-notes:
-    - The role C(ravendb.ravendb.ravendb_python_client_prerequisites) must be applied before using this module.
-    - Requires the ASP.NET Core Runtime to be installed on the target system.
+
 '''
 
 EXAMPLES = '''
@@ -157,6 +125,7 @@ from ansible.module_utils.basic import AnsibleModule, missing_required_lib
 
 LIB_IMP_ERR = None
 try:
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.common_args import ravendb_common_argument_spec
     from ravendb import DocumentStore, GetDatabaseNamesOperation
     from ravendb.serverwide.operations.common import CreateDatabaseOperation, DeleteDatabaseOperation
     from ravendb.serverwide.database_record import DatabaseRecord
@@ -261,15 +230,11 @@ def is_valid_state(state):
 
 
 def main():
-    module_args = dict(
-        url=dict(
-            type='str', required=True), database_name=dict(
-            type='str', required=True), replication_factor=dict(
-                type='int', default=1), certificate_path=dict(
-                    type='str', required=False), ca_cert_path=dict(
-                        type='str', required=False), state=dict(
-                            type='str', choices=[
-                                'present', 'absent'], default='present'))
+    module_args = ravendb_common_argument_spec()
+    module_args.update(
+        replication_factor=dict(type='int', default=1),
+        state=dict(type='str', choices=['present', 'absent'], default='present')
+    )
 
     module = AnsibleModule(
         argument_spec=module_args,

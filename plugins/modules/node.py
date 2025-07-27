@@ -26,13 +26,28 @@ attributes:
 
 
 options:
-    node:
+    tag:
         description:
-            - Dictionary containing the node details to add.
-            - Must include C(tag), C(url), and C(leader_url).
-            - Optionally, set C(type) to "Watcher" to add the node as a watcher instead of a full member.
+            - The unique tag for the node (uppercase alphanumeric).
         required: true
-        type: dict
+        type: str
+    type:
+        description:
+            - Node type. Use "Watcher" to add the node as a watcher instead of a full member.
+        required: false
+        type: str
+        default: Member
+        choices: [Member, Watcher]
+    url:
+        description:
+            - The HTTP URL of the node being added.
+        required: true
+        type: str
+    leader_url:
+        description:
+            - The HTTP URL of the cluster leader.
+        required: true
+        type: str
 requirements:
     - python >= 3.9
     - requests
@@ -50,25 +65,22 @@ notes:
 EXAMPLES = '''
 - name: Join Node B as a Watcher
   ravendb.ravendb.node:
-    node:
-      tag: B
-      type: "Watcher"
-      url: "http://192.168.118.120:8080"
-      leader_url: "http://192.168.117.90:8080"
+    tag: B
+    type: "Watcher"
+    url: "http://192.168.118.120:8080"
+    leader_url: "http://192.168.117.90:8080"
 
 - name: Join Node C as a Member
   ravendb.ravendb.node:
-    node:
-      tag: C
-      url: "http://192.168.118.77:8080"
-      leader_url: "http://192.168.117.90:8080"
+    tag: C
+    url: "http://192.168.118.77:8080"
+    leader_url: "http://192.168.117.90:8080"
 
 - name: Simulate adding Node D (check mode)
   ravendb.ravendb.node:
-    node:
-      tag: D
-      url: "http://192.168.118.200:8080"
-      leader_url: "http://192.168.117.90:8080"
+    tag: D
+    url: "http://192.168.118.200:8080"
+    leader_url: "http://192.168.117.90:8080"
   check_mode: yes
 '''
 
@@ -107,22 +119,22 @@ def is_valid_tag(tag):
     return isinstance(tag, str) and tag.isalnum() and tag.isupper()
 
 
-def add_node(node, check_mode):
+def add_node(tag, node_type, url, leader_url, check_mode):
     """
     Add a new node to a RavenDB cluster by making an HTTP PUT request to the leader node.
 
     Args:
-        node (dict): Dictionary containing 'url', 'tag', 'leader_url', and 'type' fields.
+        tag (str): Node tag.
+        node_type (str): "Member" or "Watcher".
+        url (str): URL of the node.
+        leader_url (str): URL of the leader node.
         check_mode (bool): If True, simulate adding the node without making changes.
 
     Returns:
         dict: Result dictionary with keys 'changed', 'msg', and optionally 'error'.
     """
     import requests
-    url = node.get("url")
-    tag = node.get("tag")
-    leader_url = node.get("leader_url")
-    is_watcher = node.get("type") == "Watcher"
+    is_watcher = node_type == "Watcher"
 
     if not leader_url:
         return {"changed": False, "msg": "Leader URL must be specified"}
@@ -146,8 +158,8 @@ def add_node(node, check_mode):
         return {
             "changed": True,
             "msg": "Node {} would be added to the cluster".format(tag)}
-    try:
 
+    try:
         add_url = "{}/admin/cluster/node?url={}&tag={}".format(leader_url, url, tag)
         if is_watcher:
             add_url += "&watcher=true"
@@ -174,16 +186,22 @@ def add_node(node, check_mode):
 
 def main():
     module_args = {
-        "node": {"type": "dict", "required": True},
+        "tag": {"type": "str", "required": True},
+        "type": {"type": "str", "default": "Member", "choices": ["Member", "Watcher"]},
+        "url": {"type": "str", "required": True},
+        "leader_url": {"type": "str", "required": True},
     }
 
     module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
-    node = module.params["node"]
+
+    tag = module.params["tag"]
+    node_type = module.params["type"]
+    url = module.params["url"]
+    leader_url = module.params["leader_url"]
 
     try:
-        changed, message = add_node(node, module.check_mode)
+        changed, message = add_node(tag, node_type, url, leader_url, module.check_mode)
         module.exit_json(changed=changed, msg=message)
-
     except Exception as e:
         module.fail_json(msg="An error occurred: {}".format(str(e)))
 
