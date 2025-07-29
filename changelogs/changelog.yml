@@ -23,3 +23,13 @@ releases:
           - Fixed usage of FQCNs in roles and playbooks.
           - Cleaned up unnecessary files - `ansible.cfg`, `inventories/`, etc.
           - Expanded CI matrix: added `stable-2.18`, `stable-2.19`, and `Python 2.7` support.
+
+  - name: "Refactor Node Module & Shared Args"
+    tag: "v1.0.2"
+    version: "1.0.2"
+    changes:
+      - changed:
+          - Flattened argument structure in `ravendb.ravendb.node` module (removed nested `node:` dictionary).
+          - Centralized common arguments (`url`, `database_name`, `certification_path`, `ca_cert_path`) under `module_utils` and `doc_fragments` for reuse across modules.
+      - fixed:
+          - Ensured all modules properly import and expose shared options from centralized definitions.

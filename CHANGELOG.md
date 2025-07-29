@@ -26,3 +26,13 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
 - Replaced partial module names in roles/playbooks with full FQCNs.
 - Removed leftover files: `ansible.cfg`, `inventories/`, etc.
 - CI matrix now includes `stable-2.18`, `stable-2.19`, and Python 2.7 testing.
+
+## [1.0.2] - 2025-07-29
+
+### Changed
+- Flattened arguments in the `ravendb.ravendb.node` module for clarity (removed nested `node:` dict).
+- Reorganized common module arguments (`url`, `database_name`, `certification_path`, `ca_cert_path`) into `module_utils` and `doc_fragments`.
+
+### Fixed
+- Ensured all modules correctly import and expose shared argument definitions.
+
