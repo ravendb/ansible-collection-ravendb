@@ -79,48 +79,48 @@
   stat:
     path: /usr/lib/ravendb/server/Raven.Server
   register: ravendb_binary
- 
+
 - name: Install or Upgrade RavenDB from DEB package
   become: true
   ansible.builtin.apt:
     deb: /tmp/ravendb.deb
-  when: ravendb_should_update_binaries and ansible_facts['os_family'] | lower == 'debian'
+  when:
+    - ansible_facts['os_family'] | lower == 'debian'
+    - ravendb_binary.stat.exists == false or ravendb_should_update_binaries | bool
 
 - block:
-  - name: Determine current RavenDB version
-    become: true
-    command: >
-      /usr/lib/ravendb/server/Raven.Server --version
-    register: ravendb_existing_version_result
-    when: "'ravendb.service' in services"  
-    tags: binaries
+    - name: Determine current RavenDB version
+      become: true
+      command: >
+        /usr/lib/ravendb/server/Raven.Server --version
+      register: ravendb_existing_version_result
+      when: "'ravendb.service' in services"
+      tags: binaries
 
-  - name: Determine whether that's an update or a new deployment
-    set_fact:
-      ravendb_should_update_binaries: >
-        (ravendb_existing_version_result is not defined) 
-        or (not ravendb_existing_version_result.skipped 
-            and ravendb_existing_version_result.stdout != ravendb_version) 
-    tags: binaries
+    - name: Determine whether that's an update or a new deployment
+      set_fact:
+        ravendb_should_update_binaries: >-
+          {{ (ravendb_existing_version_result is not defined)
+              or (not (ravendb_existing_version_result | default({})).get('skipped', false)
+                  and (ravendb_existing_version_result | default({})).get('stdout', '') != ravendb_version) }}
+      tags: binaries
 
-  - name: Unpack RavenDB server binaries
-    become: true
-    ansible.builtin.unarchive:
-      remote_src: yes
-      src: /tmp/ravendb.tar.bz2
-      dest: /usr/lib/ravendb/server
-      extra_opts:
+    - name: Unpack RavenDB server binaries (RHEL/CentOS)
+      become: true
+      ansible.builtin.unarchive:
+        remote_src: yes
+        src: /tmp/ravendb.tar.bz2
+        dest: /usr/lib/ravendb/server
+        extra_opts:
           - --transform
           - s/^RavenDB\/Server//
-    when: ravendb_should_update_binaries
-    tags: binaries
-  when: ansible_facts['os_family'] | lower == 'redhat'
+      when: ansible_facts['os_family'] | lower == 'redhat'
 
 - name: Determine settings.json template
   set_fact:
-    ravendb_settings_json_j2: "settings.{{ ravendb_settings_preset }}.json.j2" 
+    ravendb_settings_json_j2: "settings.{{ ravendb_settings_preset }}.json.j2"
 
-- name: Template settings.json preset out 
+- name: Template settings.json preset out
   become: true
   ansible.builtin.template:
     src: "{{ ravendb_settings_json_j2 }}"
@@ -155,7 +155,7 @@
   ansible.builtin.copy:
     src: "{{ ravendb_license_file }}"
     dest: /etc/ravendb/license.json
-    owner: root 
+    owner: root
     group: ravendb
     mode: '0640'
   when: ravendb_license_file | default('', true) | length > 0
@@ -171,13 +171,13 @@
 - name: Copy settings file
   become: true
   ansible.builtin.copy:
-    remote_src: true 
+    remote_src: true
     src: "/tmp/ravendb_settings.json"
     dest: /etc/ravendb/settings.json
     owner: root
     group: ravendb
     mode: '0640'
-  when: 
+  when:
     - not ravendb_binary.stat.exists
     - ravendb_settings_override.keys() | length == 0
     - not (ravendb_secured_enabled | default(false))
@@ -191,10 +191,11 @@
     owner: root
     group: ravendb
     mode: '0644'
-  when: ravendb_should_update_binaries
+  when:
+    - ravendb_binary.stat.exists == false or ravendb_should_update_binaries | bool
   tags: config,ravendb_settings
 
-- block: 
+- block:
     - name: Set ravendb_arch_so
       set_fact:
         ravendb_arch_so: "{{ ravendb_arch | regex_replace('-', '.') }}"
@@ -212,8 +213,8 @@
         - librvnpal
         - libsodium
         - libzstd
-      when: 
-        - ravendb_should_update_binaries
+      when:
+        - ravendb_binary.stat.exists == false or ravendb_should_update_binaries | bool
         - ravendb_version is regex('^4\.') and item != 'libzstd'
       tags: binaries
 
@@ -225,7 +226,8 @@
         - librvnpal
         - libsodium
         - libzstd
-      when: ravendb_should_update_binaries
+      when:
+        - ravendb_binary.stat.exists == false or ravendb_should_update_binaries | bool
       tags: binaries
 
     - name: Adjust binaries permissions
@@ -272,7 +274,7 @@
     mode: '0755'
     recurse: yes
 
-- name: Check OS uses capabilities 
+- name: Check OS uses capabilities
   stat:
     path: /usr/sbin/getcap
   register: getcap_stat
@@ -281,13 +283,13 @@
 - name: Set capabilities
   become: true
   community.general.capabilities:
-    path: /usr/lib/ravendb/server/Raven.Server 
-    capability: CAP_NET_BIND_SERVICE=+eip 
+    path: /usr/lib/ravendb/server/Raven.Server
+    capability: CAP_NET_BIND_SERVICE=+eip
     state: present
   when: getcap_stat.stat.exists
   tags: binaries
 
-- name: Template ravendb.service out 
+- name: Template ravendb.service out
   become: true
   ansible.builtin.template:
     src: ravendb.service.j2
