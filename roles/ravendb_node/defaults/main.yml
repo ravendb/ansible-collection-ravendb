@@ -18,4 +18,4 @@ ravendb_node_tag: "A"
 # secure setup variables
 ravendb_certificate_file: ""
 ravendb_certificate_password: ""
-ravendb_certificate_letsencrypt_email: ""
+ravendb_setup_package: ""

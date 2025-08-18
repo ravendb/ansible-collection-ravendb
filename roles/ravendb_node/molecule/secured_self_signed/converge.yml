@@ -18,6 +18,5 @@
         ravendb_license_file: "license.json"
         ravendb_certificate_file: "server.pfx"
         ravendb_certificate_password: "raven"
-        ravendb_certificate_letsencrypt_email: "rdbansible@gmail.com"
         ravendb_ca_certificate_file: "ca_cert.pem"
         ravendb_ca_key_file: "ca_key.pem"
