@@ -118,12 +118,17 @@ msg:
 '''
 
 import os
-import requests
 try:
     from urllib.parse import urlparse
 except ImportError:
     from urlparse import urlparse
 from ansible.module_utils.basic import AnsibleModule
+
+HAS_REQUESTS = True
+try:
+    import requests
+except ImportError:
+    HAS_REQUESTS = False
 
 
 def is_valid_url(url):
@@ -146,6 +151,7 @@ def validate_paths(*paths):
             return False, "Path does not exist: {}".format(p)
     return True, None
 
+
 def build_requests_tls_options(certificate_path, ca_cert_path):
     """
     Decide what to pass to requests for TLS.
@@ -164,6 +170,7 @@ def build_requests_tls_options(certificate_path, ca_cert_path):
         verify = ca_cert_path
 
     return cert, verify
+
 
 def normalize_topology_group(topology_group):
     """
@@ -193,7 +200,7 @@ def fetch_topology(leader_url, certificate_path=None, ca_cert_path=None):
     """
     cert, verify = build_requests_tls_options(certificate_path, ca_cert_path)
 
-    url = f"{leader_url.rstrip('/')}/cluster/topology"
+    url = "{}/cluster/topology".format(leader_url.rstrip('/'))
     response = requests.get(url, cert=cert, verify=verify)
     response.raise_for_status()
 
@@ -205,6 +212,7 @@ def fetch_topology(leader_url, certificate_path=None, ca_cert_path=None):
         "Watchers": normalize_topology_group(topology.get("Watchers", {})),
         "Promotables": normalize_topology_group(topology.get("Promotables", {})),
     }
+
 
 def find_node_in_topology(topology, search_tag, search_url):
     """
@@ -252,7 +260,6 @@ def add_node(tag, node_type, url, leader_url, certificate_path, ca_cert_path, ch
     if not valid:
         return {"changed": False, "msg": err}
 
-
     try:
         topology = fetch_topology(leader_url, certificate_path, ca_cert_path)
         present, role, existing_tag, existing_url = find_node_in_topology(topology, tag, url)
@@ -261,7 +268,7 @@ def add_node(tag, node_type, url, leader_url, certificate_path, ca_cert_path, ch
                 "changed": False,
                 "msg": "Node {} already present in the cluster as {} ({}).".format(existing_tag, role, existing_url),
             }
-        
+
     except requests.RequestException:
         pass
 
@@ -314,6 +321,8 @@ def main():
 
     module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
 
+    if not HAS_REQUESTS:
+        module.fail_json(msg="Python 'requests' library is required. Please install it.")
     try:
         result = add_node(
             tag=module.params["tag"],
