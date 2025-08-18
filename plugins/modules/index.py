@@ -439,7 +439,7 @@ def enable_index(store, index_name, cluster_wide, check_mode):
     current = get_index_state(store, index_name)
     if current != IndexState.DISABLED:
         return "ok", False, "Index '{}' is already enabled.".format(index_name)
-    
+
     if check_mode:
         return "ok", True, "Index '{}' would be enabled{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
 
@@ -506,10 +506,12 @@ def reset_index(store, index_name, check_mode):
 
     return "ok", True, "Index '{}' reset successfully.".format(index_name)
 
+
 def get_index_state(store, index_name):
     """Return the logical index state"""
     stats = store.maintenance.send(GetIndexStatisticsOperation(index_name))
     return stats.state
+
 
 def apply_mode(store, index_name, mode, cluster_wide, check_mode):
     """Dispatch index mode operation based on the given mode string."""
