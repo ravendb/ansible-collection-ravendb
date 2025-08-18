@@ -1,5 +1,5 @@
 ---
-- name: Update Index
+- name: Create Index
   hosts: localhost
   gather_facts: no
 
@@ -7,24 +7,16 @@
     - ravendb.ravendb.ravendb_python_client_prerequisites
 
   tasks:
-    - name: Ensure RavenDB Index is present
+    - name: Ensure RavenDB Index is present (check mode)
+      become: true
       ravendb.ravendb.index:
-        url: "http://{{ ansible_host }}:8080"
-        database_name: "my_database"
+        url: "https://a.ravendbansible.development.run"
+        certificate_path: /home/user/security/setup_package/admin.client.combined.pem
+        database_name: "my_encrypted_db"
         index_name: "UsersByName"
         index_definition: 
           map: 
-            - "from c in docs.Users select new { c.name, count = 1 }"
-        state: present
-
-    - name: Update RavenDB Index definiton (check mode)
-      ravendb.ravendb.index:
-        url: "http://{{ ansible_host }}:8080"
-        database_name: "my_database"
-        index_name: "UsersByName"
-        index_definition: 
-          map: 
-            - "from c in docs.Users select new { c.name, count = 13 }"
+            - "from c in docs.Users select new { c.name, count = 5 }"
           reduce: >
             from result in results
             group result by result.name 
@@ -37,15 +29,16 @@
         state: present
       check_mode: yes
 
-
-    - name: Update RavenDB Index definiton
+    - name: Ensure RavenDB Index is present
+      become: true
       ravendb.ravendb.index:
-        url: "http://{{ ansible_host }}:8080"
-        database_name: "my_database"
+        url: "https://a.ravendbansible.development.run"
+        certificate_path: /home/user/security/setup_package/admin.client.combined.pem
+        database_name: "my_encrypted_db"
         index_name: "UsersByName"
         index_definition: 
           map: 
-            - "from c in docs.Users select new { c.name, count = 13 }"
+            - "from c in docs.Users select new { c.name, count = 5 }"
           reduce: >
             from result in results
             group result by result.name 
@@ -57,15 +50,16 @@
             }
         state: present
 
-
-    - name: Update RavenDB Index definiton (idempotency check)
+    - name: Ensure RavenDB Index is present (idempotency check)
+      become: true
       ravendb.ravendb.index:
-        url: "http://{{ ansible_host }}:8080"
-        database_name: "my_database"
+        url: "https://a.ravendbansible.development.run"
+        certificate_path: /home/user/security/setup_package/admin.client.combined.pem
+        database_name: "my_encrypted_db"
         index_name: "UsersByName"
         index_definition: 
           map: 
-            - "from c in docs.Users select new { c.name, count = 13 }"
+            - "from c in docs.Users select new { c.name, count = 5 }"
           reduce: >
             from result in results
             group result by result.name 

@@ -1,0 +1,74 @@
+---
+- name: Create Database
+  hosts: localhost
+  gather_facts: no
+
+  roles:
+    - ravendb.ravendb.ravendb_python_client_prerequisites
+
+  tasks:
+
+    - name: Create encrypted DB with key generation (check mode)
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_encrypted_db"
+        replication_factor: 3
+        encrypted: true
+        generate_encryption_key: true
+        encryption_key_output_path: "/home/user/security/my_encrypted_db.key"
+        state: present
+      check_mode: yes
+    
+    - name: Create encrypted DB with key generation
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_encrypted_db"
+        replication_factor: 3
+        encrypted: true
+        generate_encryption_key: true
+        encryption_key_output_path: "/home/user/security/my_encrypted_db.key"
+        state: present
+
+    - name: Create encrypted DB with key generation (idempotency check)
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_encrypted_db"
+        replication_factor: 3
+        encrypted: true
+        generate_encryption_key: true
+        encryption_key_output_path: "/home/user/security/my_encrypted_db.key"
+        state: present
+
+    - name: Create encrypted DB with provided key (check mode)
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_encrypted_db_from_file"
+        replication_factor: 3
+        encrypted: true
+        encryption_key: /home/user/security/my_key.key
+        state: present
+      check_mode: yes
+
+    - name: Create encrypted DB with provided key
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_encrypted_db_from_file"
+        replication_factor: 3
+        encrypted: true
+        encryption_key: /home/user/security/my_key.key
+        state: present
+
+    - name: Create encrypted DB with provided key (idempotency check)
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_encrypted_db_from_file"
+        replication_factor: 3
+        encrypted: true
+        encryption_key: /home/user/security/my_key.key
+        state: present

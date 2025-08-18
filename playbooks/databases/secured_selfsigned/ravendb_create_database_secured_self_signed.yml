@@ -1,6 +1,6 @@
 ---
 - name: Create Database (secured server self signed)
-  hosts: ravendb_nodes
+  hosts: localhost
   gather_facts: no
 
   roles:

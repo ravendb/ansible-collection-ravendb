@@ -1,0 +1,39 @@
+---
+- name: Enable Index
+  hosts: localhost
+  gather_facts: no
+
+  roles:
+    - ravendb.ravendb.ravendb_python_client_prerequisites
+
+  tasks:
+    - name: Ensure RavenDB Index is disabled (check mode)
+      become: true
+      ravendb.ravendb.index:
+        url: "https://a.ravendbansible.development.run"
+        certificate_path: /home/user/security/setup_package/admin.client.combined.pem
+        database_name: "my_encrypted_db"
+        index_name: "UsersByName"
+        mode: enabled
+        cluster_wide: true
+      check_mode: yes
+
+    - name: Ensure RavenDB Index is disabled
+      become: true
+      ravendb.ravendb.index:
+        url: "https://a.ravendbansible.development.run"
+        certificate_path: /home/user/security/setup_package/admin.client.combined.pem
+        database_name: "my_encrypted_db"
+        index_name: "UsersByName"
+        mode: enabled
+        cluster_wide: true
+
+    - name: Ensure RavenDB Index is disabled (idempotency check)
+      become: true
+      ravendb.ravendb.index:
+        url: "https://a.ravendbansible.development.run"
+        certificate_path: /home/user/security/setup_package/admin.client.combined.pem
+        database_name: "my_encrypted_db"
+        index_name: "UsersByName"
+        mode: enabled
+        cluster_wide: true

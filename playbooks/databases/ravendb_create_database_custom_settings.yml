@@ -1,0 +1,52 @@
+---
+- hosts: localhost
+  gather_facts: no
+
+  roles:
+    - ravendb.ravendb.ravendb_python_client_prerequisites
+
+  tasks:
+    - name: Create DB with explicit settings (check mode)
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_database"
+        replication_factor: 3
+        state: present
+        database_settings:
+          Databases.QueryTimeoutInSec: "350"
+          Indexing.Static.DeploymentMode: "Rolling"
+      check_mode: yes
+
+    - name: Create DB with explicit settings
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_database"
+        replication_factor: 3
+        state: present
+        database_settings:
+          Databases.QueryTimeoutInSec: "350"
+          Indexing.Static.DeploymentMode: "Rolling"
+
+    - name: Create DB with explicit settings (idempotent)
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_database"
+        replication_factor: 3
+        state: present
+        database_settings:
+          Databases.QueryTimeoutInSec: "350"
+          Indexing.Static.DeploymentMode: "Rolling"
+
+    - name: Modify existing DB settings
+      ravendb.ravendb.database:
+        url: "https://a.ravendbansible.development.run:443"
+        certificate_path: "/home/user/security/setup_package/admin.client.combined.pem"
+        database_name: "my_database"
+        replication_factor: 3
+        state: present
+        database_settings:
+          Databases.QueryTimeoutInSec: "100"
+          Indexing.Static.DeploymentMode: "Rolling"

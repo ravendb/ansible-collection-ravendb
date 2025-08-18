@@ -1,6 +1,6 @@
 ---
 - name: Resume Index
-  hosts: ravendb_nodes
+  hosts: localhost
   gather_facts: no
 
   roles:
@@ -11,7 +11,7 @@
       ravendb.ravendb.index:
         url: "http://{{ ansible_host }}:8080"
         database_name: "my_database"
-        index_name: "Orders/ByCompany"
+        index_name: "UsersByName"
         mode: resumed
       check_mode: yes
 
@@ -19,12 +19,12 @@
       ravendb.ravendb.index:
         url: "http://{{ ansible_host }}:8080"
         database_name: "my_database"
-        index_name: "Orders/ByCompany"
+        index_name: "UsersByName"
         mode: resumed
 
     - name: Ensure RavenDB Index is resumed (idempotency check)
       ravendb.ravendb.index:
         url: "http://{{ ansible_host }}:8080"
         database_name: "my_database"
-        index_name: "Orders/ByCompany"
+        index_name: "UsersByName"
         mode: resumed
