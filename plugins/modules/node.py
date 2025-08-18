@@ -16,6 +16,8 @@ description:
     - This module adds a RavenDB node to a cluster, either as a member or a watcher.
     - Requires specifying the leader node's URL.
     - Supports check mode to simulate the addition without applying changes.
+    - Supports secured clusters with HTTPS, client certificates (PEM format), and optional CA bundle for verification.
+    - The module inspects cluster topology first and skips adding if the node is already present.
 version_added: "1.0.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
 
@@ -40,14 +42,26 @@ options:
         choices: [Member, Watcher]
     url:
         description:
-            - The HTTP URL of the node being added.
+            - The HTTP/HTTPS URL of the node being added.
         required: true
         type: str
     leader_url:
         description:
-            - The HTTP URL of the cluster leader.
+            - The HTTP/HTTPS URL of the cluster leader.
         required: true
         type: str
+    certificate_path:
+        description:
+        - Path to a client certificate in PEM format (combined certificate and key).
+        - Required for secured clusters (HTTPS with client authentication).
+        required: false
+        type: str
+    ca_cert_path:
+        description:
+            - Path to a CA certificate bundle to verify the server certificate.
+        required: false
+        type: str
+
 requirements:
     - python >= 3.9
     - requests
@@ -60,21 +74,25 @@ notes:
     - The node C(tag) must be an uppercase, non-empty alphanumeric string.
     - URLs must be valid HTTP or HTTPS addresses.
     - Check mode is fully supported and simulates joining the node without actually performing the action.
+    - If the node is already part of the cluster (by tag or URL), the task is a no-op.
+    - Supports both unsecured (HTTP) and secured (HTTPS) RavenDB clusters.
 '''
 
 EXAMPLES = '''
-- name: Join Node B as a Watcher
+- name: Join Node B as a Watcher (HTTP, no cert)
   ravendb.ravendb.node:
     tag: B
     type: "Watcher"
     url: "http://192.168.118.120:8080"
     leader_url: "http://192.168.117.90:8080"
 
-- name: Join Node C as a Member
+- name: Join Node B as Watcher (HTTPS)
   ravendb.ravendb.node:
-    tag: C
-    url: "http://192.168.118.77:8080"
-    leader_url: "http://192.168.117.90:8080"
+    tag: B
+    type: "Watcher"
+    url: "https://b.ravendbansible.development.run"
+    leader_url: "https://a.ravendbansible.development.run"
+    certificate_path: /etc/ravendb/security/admin.client.combined.pem
 
 - name: Simulate adding Node D (check mode)
   ravendb.ravendb.node:
@@ -99,6 +117,8 @@ msg:
     version_added: "1.0.0"
 '''
 
+import os
+import requests
 try:
     from urllib.parse import urlparse
 except ImportError:
@@ -107,7 +127,7 @@ from ansible.module_utils.basic import AnsibleModule
 
 
 def is_valid_url(url):
-    """Return True if the given URL is a string with a valid HTTP or HTTPS scheme and a network location."""
+    """Return True if the given URL is a string with a valid HTTP or HTTPS scheme."""
     if not isinstance(url, str):
         return False
     parsed = urlparse(url)
@@ -119,22 +139,99 @@ def is_valid_tag(tag):
     return isinstance(tag, str) and tag.isalnum() and tag.isupper()
 
 
-def add_node(tag, node_type, url, leader_url, check_mode):
-    """
-    Add a new node to a RavenDB cluster by making an HTTP PUT request to the leader node.
+def validate_paths(*paths):
+    """Check that all non-empty paths exist as files."""
+    for p in paths:
+        if p and not os.path.isfile(p):
+            return False, "Path does not exist: {}".format(p)
+    return True, None
 
-    Args:
-        tag (str): Node tag.
-        node_type (str): "Member" or "Watcher".
-        url (str): URL of the node.
-        leader_url (str): URL of the leader node.
-        check_mode (bool): If True, simulate adding the node without making changes.
-
-    Returns:
-        dict: Result dictionary with keys 'changed', 'msg', and optionally 'error'.
+def build_requests_tls_options(certificate_path, ca_cert_path):
     """
-    import requests
-    is_watcher = node_type == "Watcher"
+    Decide what to pass to requests for TLS.
+    Returns a tuple: (cert, verify)
+    """
+    cert = None
+    verify = True
+
+    if certificate_path:
+        cert = certificate_path
+        if ca_cert_path:
+            verify = ca_cert_path
+        else:
+            verify = False
+    elif ca_cert_path:
+        verify = ca_cert_path
+
+    return cert, verify
+
+def normalize_topology_group(topology_group):
+    """
+    Convert  topology group into a {tag: url} mapping.
+    """
+    if isinstance(topology_group, dict):
+        return topology_group
+
+    mapping = {}
+    if isinstance(topology_group, list):
+        for item in topology_group:
+            if not isinstance(item, dict):
+                continue
+
+            tag = item.get("Tag") or item.get("tag")
+            url = item.get("Url") or item.get("url")
+
+            if tag and url:
+                mapping[tag] = url
+
+    return mapping
+
+
+def fetch_topology(leader_url, certificate_path=None, ca_cert_path=None):
+    """
+    Query the leader node for cluster topology and return normalized groups.
+    """
+    cert, verify = build_requests_tls_options(certificate_path, ca_cert_path)
+
+    url = f"{leader_url.rstrip('/')}/cluster/topology"
+    response = requests.get(url, cert=cert, verify=verify)
+    response.raise_for_status()
+
+    data = response.json()
+    topology = data.get("Topology") or data
+
+    return {
+        "Members": normalize_topology_group(topology.get("Members", {})),
+        "Watchers": normalize_topology_group(topology.get("Watchers", {})),
+        "Promotables": normalize_topology_group(topology.get("Promotables", {})),
+    }
+
+def find_node_in_topology(topology, search_tag, search_url):
+    """
+    Return (present, role, existing_tag, existing_url) where role in {"Member","Watcher","Promotable"} or None.
+    Match by tag OR by url.
+    """
+    roles = [
+        ("Members", "Member"),
+        ("Watchers", "Watcher"),
+        ("Promotables", "Promotable"),
+    ]
+    for group_key, role_name in roles:
+        group = topology.get(group_key, {}) or {}
+
+        for tag, url in group.items():
+            if tag == search_tag or url == search_url:
+                return True, role_name, tag, url
+
+    return False, None, None, None
+
+
+def add_node(tag, node_type, url, leader_url, certificate_path, ca_cert_path, check_mode):
+    """
+    Add a new node to a RavenDB cluster by making an HTTP(S) PUT request to the leader node.
+    Supports client certificate (PEM) and optional CA bundle.
+    """
+    is_watcher = (node_type == "Watcher")
 
     if not leader_url:
         return {"changed": False, "msg": "Leader URL must be specified"}
@@ -145,43 +242,64 @@ def add_node(tag, node_type, url, leader_url, check_mode):
     if not is_valid_tag(tag):
         return {
             "changed": False,
-            "msg": "Invalid tag: Node tag must be an uppercase non-empty alphanumeric string"}
+            "msg": "Invalid tag: Node tag must be an uppercase non-empty alphanumeric string"
+        }
 
     if not is_valid_url(url):
-        return {
-            "changed": False,
-            "msg": "Invalid URL: must be a valid HTTP(S) URL"}
+        return {"changed": False, "msg": "Invalid URL: must be a valid HTTP(S) URL"}
 
-    headers = {"Content-Type": "application/json"}
+    valid, err = validate_paths(certificate_path, ca_cert_path)
+    if not valid:
+        return {"changed": False, "msg": err}
 
-    if check_mode:
-        return {
-            "changed": True,
-            "msg": "Node {} would be added to the cluster".format(tag)}
 
     try:
-        add_url = "{}/admin/cluster/node?url={}&tag={}".format(leader_url, url, tag)
-        if is_watcher:
-            add_url += "&watcher=true"
+        topology = fetch_topology(leader_url, certificate_path, ca_cert_path)
+        present, role, existing_tag, existing_url = find_node_in_topology(topology, tag, url)
+        if present:
+            return {
+                "changed": False,
+                "msg": "Node {} already present in the cluster as {} ({}).".format(existing_tag, role, existing_url),
+            }
+        
+    except requests.RequestException:
+        pass
 
-        response = requests.put(add_url, headers=headers)
+    if check_mode:
+        return {"changed": True, "msg": "Node {} would be added to the cluster as {}.".format(tag, node_type)}
+
+    params = {"url": url, "tag": tag}
+    if is_watcher:
+        params["watcher"] = "true"
+
+    endpoint = "{}/admin/cluster/node".format(leader_url.rstrip("/"))
+    cert, verify = build_requests_tls_options(certificate_path, ca_cert_path)
+
+    try:
+        response = requests.put(
+            endpoint,
+            params=params,
+            headers={"Content-Type": "application/json"},
+            cert=cert,
+            verify=verify,
+        )
         response.raise_for_status()
 
     except requests.HTTPError as e:
-        error_message = response.json().get(
-            "Message", response.text) if response.content else str(e)
-        return {
-            "changed": False,
-            "msg": "Failed to add node {}".format(tag),
-            "error": error_message}
+        response = e.response
+        if response is not None:
+            try:
+                error_message = response.json().get("Message", response.text)
+            except ValueError:
+                error_message = response.text
+        else:
+            error_message = str(e)
+        return {"changed": False, "msg": "Failed to add node {}".format(tag), "error": error_message}
 
     except requests.RequestException as e:
-        return {
-            "changed": False,
-            "msg": "Failed to add node {}".format(tag),
-            "error": str(e)}
+        return {"changed": False, "msg": "Failed to add node {}".format(tag), "error": str(e)}
 
-    return {"changed": True, "msg": "Node {} added to the cluster".format(tag)}
+    return {"changed": True, "msg": "Node {} added to the cluster as {}.".format(tag, node_type)}
 
 
 def main():
@@ -190,18 +308,26 @@ def main():
         "type": {"type": "str", "default": "Member", "choices": ["Member", "Watcher"]},
         "url": {"type": "str", "required": True},
         "leader_url": {"type": "str", "required": True},
+        "certificate_path": {"type": "str", "required": False, "default": None},
+        "ca_cert_path": {"type": "str", "required": False, "default": None},
     }
 
     module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
 
-    tag = module.params["tag"]
-    node_type = module.params["type"]
-    url = module.params["url"]
-    leader_url = module.params["leader_url"]
-
     try:
-        changed, message = add_node(tag, node_type, url, leader_url, module.check_mode)
-        module.exit_json(changed=changed, msg=message)
+        result = add_node(
+            tag=module.params["tag"],
+            node_type=module.params["type"],
+            url=module.params["url"],
+            leader_url=module.params["leader_url"],
+            certificate_path=module.params.get("certificate_path"),
+            ca_cert_path=module.params.get("ca_cert_path"),
+            check_mode=module.check_mode,
+        )
+        if result.get("error"):
+            module.fail_json(**result)
+        else:
+            module.exit_json(**result)
     except Exception as e:
         module.fail_json(msg="An error occurred: {}".format(str(e)))
 

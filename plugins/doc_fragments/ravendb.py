@@ -48,5 +48,6 @@ class ModuleDocFragment(object):
     - python >= 3.9
     - ravendb python client
     - ASP.NET Core Runtime
+    - requests
     - Role ravendb.ravendb.ravendb_python_client_prerequisites must be installed before using this module.
     '''

@@ -16,6 +16,8 @@ description:
     - This module allows you to create or delete a RavenDB database.
     - It supports providing a replication factor and secured connections using certificates.
     - Check mode is supported to simulate database creation or deletion without applying changes.
+    - Supports creating encrypted databases by assigning a secret key (generated or user-provided) and distributing it to all cluster nodes.
+    - Supports applying per-database settings (database_settings) and triggering a safe database reload so changes take effect.
 version_added: "1.0.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
 
@@ -42,6 +44,50 @@ options:
           - present
           - absent
         default: present
+
+    encrypted:
+        description:
+        - Create the database as encrypted.
+        - When C(true), the module ensures a secret key is assigned (generated or read from file) and distributed to all cluster nodes before creation.
+        - Requires C(certificate_path) to access admin endpoints.
+        required: false
+        default: false
+        type: bool
+        
+    encryption_key:
+        description:
+        - Path to a file that contains the raw encryption key (plain text).
+        - Mutually exclusive with C(generate_encryption_key).
+        - Used only when C(encrypted=true).
+        required: false
+        default: ""
+        type: str
+        
+    generate_encryption_key:
+        description:
+        - If C(true), asks the server to generate a new encryption key via the admin API.
+        - Mutually exclusive with C(encryption_key).
+        - Used only when C(encrypted=true).
+        required: false
+        default: false
+        type: bool
+        
+    encryption_key_output_path:
+        description:
+        - When C(generate_encryption_key=true), write the generated key to this local file with safe permissions (0600 umask).
+        - Ignored if C(generate_encryption_key=false).
+        required: false
+        default: ""
+        type: str
+
+    database_settings:
+        description:
+          - Dictionary of database-level settings to apply.
+          - Values are normalized to strings and compared against current customized settings.
+          - If differences exist, the module updates settings and toggles the database state to reload them safely.
+        required: false
+        type: dict
+        default: {}
 
 seealso:
   - name: RavenDB documentation
@@ -117,11 +163,18 @@ msg:
 import traceback
 import os
 import re
+import json
 try:
     from urllib.parse import urlparse
 except ImportError:
     from urlparse import urlparse
 from ansible.module_utils.basic import AnsibleModule, missing_required_lib
+
+HAS_REQUESTS = True
+try:
+    import requests
+except ImportError:
+    HAS_REQUESTS = False
 
 LIB_IMP_ERR = None
 try:
@@ -130,18 +183,22 @@ try:
     from ravendb.serverwide.operations.common import CreateDatabaseOperation, DeleteDatabaseOperation
     from ravendb.serverwide.database_record import DatabaseRecord
     from ravendb.exceptions.raven_exceptions import RavenException
+    from ravendb.serverwide.operations.configuration import GetDatabaseSettingsOperation, PutDatabaseSettingsOperation
+    from ravendb.documents.operations.server_misc import ToggleDatabasesStateOperation
     HAS_LIB = True
 except ImportError:
     HAS_LIB = False
     LIB_IMP_ERR = traceback.format_exc()
 
 
-def create_store(url, certificate_path, ca_cert_path):
+def create_store(url, database_name, certificate_path=None, ca_cert_path=None):
     """Create and initialize a RavenDB DocumentStore with optional client and CA certificates."""
     store = DocumentStore(urls=[url])
-    if certificate_path and ca_cert_path:
+    if certificate_path:
         store.certificate_pem_path = certificate_path
+    if ca_cert_path:
         store.trust_store_path = ca_cert_path
+    store.database = database_name
     store.initialize()
     return store
 
@@ -151,7 +208,8 @@ def get_existing_databases(store):
     return store.maintenance.server.send(GetDatabaseNamesOperation(0, 128))
 
 
-def handle_present_state(store, database_name, replication_factor, check_mode):
+def handle_present_state(store, database_name, replication_factor, url, certificate_path, encrypted, generate_encryption_key, 
+                         encryption_key, encryption_key_output_path, db_settings, check_mode):
     """
     Ensure the specified database exists.
 
@@ -159,20 +217,57 @@ def handle_present_state(store, database_name, replication_factor, check_mode):
     """
     existing_databases = get_existing_databases(store)
 
-    if database_name in existing_databases:
-        return False, "Database '{}' already exists.".format(database_name)
 
-    if check_mode:
-        return True, "Database '{}' would be created.".format(database_name)
+    if database_name not in existing_databases:
+        if encrypted:
+            if check_mode:
+                return True, "Encrypted Database '{}' would be created.".format(database_name)
 
-    database_record = DatabaseRecord(database_name)
-    create_database_operation = CreateDatabaseOperation(
-        database_record=database_record,
-        replication_factor=replication_factor
-    )
-    store.maintenance.server.send(create_database_operation)
-    return True, "Database '{}' created successfully.".format(database_name)
+            _, _ = ensure_secret_assigned(
+                url=url,
+                database_name=database_name,
+                certificate_path=certificate_path,
+                generate_encryption_key=generate_encryption_key,
+                encryption_key=encryption_key,
+                encryption_key_output_path=encryption_key_output_path,
+                check_mode=check_mode
+            )
 
+        if check_mode:
+            return True, "Database '{}' would be created.".format(database_name)
+
+        database_record = DatabaseRecord(database_name)
+        if encrypted:
+            database_record.encrypted = True
+
+        create_database_operation = CreateDatabaseOperation(
+            database_record=database_record,
+            replication_factor=replication_factor
+        )
+        store.maintenance.server.send(create_database_operation)
+
+        created_msg = "Database '{}' created successfully{}.".format(database_name, " (encrypted)" if encrypted else "")
+        created = True
+    else:
+        created = False
+        created_msg = "Database '{}' already exists.".format(database_name)
+
+    if db_settings:
+        current_settings = get_current_db_settings(store, database_name)
+        to_apply = diff_settings(db_settings, current_settings)
+
+        if to_apply:
+            if check_mode:
+                return True, "{} Would apply settings ({}) and reload.".format(created_msg, ", ".join(sorted(to_apply.keys())))
+            
+            store.maintenance.send(PutDatabaseSettingsOperation(database_name, to_apply))
+            store.maintenance.server.send(ToggleDatabasesStateOperation(database_name, True))
+            store.maintenance.server.send(ToggleDatabasesStateOperation(database_name, False))
+            return True, "{} Applied settings ({}) and reloaded.".format(created_msg, ", ".join(sorted(to_apply.keys())))
+    
+    if created:
+        return True, created_msg
+    return False, created_msg + " No changes."
 
 def handle_absent_state(store, database_name, check_mode):
     """
@@ -191,6 +286,151 @@ def handle_absent_state(store, database_name, check_mode):
     store.maintenance.server.send(delete_database_operation)
     return True, "Database '{}' deleted successfully.".format(database_name)
 
+
+def ensure_secret_assigned(url, database_name, certificate_path, generate_encryption_key, encryption_key,encryption_key_output_path, check_mode):
+    """
+    Resolve/generate encryption key and POST it.
+    Returns a tuple: (changed: bool, message: str)
+    """
+    if check_mode:
+        return True, "Would assign encryption key for database '{}'.".format(database_name)
+
+    if generate_encryption_key:
+        key = fetch_generated_secret_key(url, certificate_path)
+        if encryption_key_output_path:
+             write_key_safe(encryption_key_output_path, key)
+    else:
+        key = read_from_file(encryption_key)
+
+    if not key:
+        raise Exception("Encryption key is empty.")
+
+    assign_secret_key(url, database_name, key, certificate_path)
+    return True, "Encryption key assigned to '{}'.".format(database_name)
+
+
+def write_key_safe(path, key):
+    """
+    Write the key to 'path'.
+    """
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    prev_umask = os.umask(0o177)
+
+    try:
+        with open(path, 'w') as f:
+            f.write(key + "\n")
+    finally:
+        os.umask(prev_umask)
+
+def read_from_file(path):
+    """
+    Read entire file and strip trailing whitespace/newlines.
+    """
+    with open(path, 'r') as f:
+        return f.read().strip()
+
+
+def fetch_generated_secret_key(base_url, cert_path):
+    """
+    Ask the server to generate an encryption key.
+    """
+    response = requests.get(
+        f"{base_url.rstrip('/')}/admin/secrets/generate",
+        cert=cert_path,
+        verify=False
+    )
+    response.raise_for_status()
+    return response.text.strip()
+
+
+def normalize_topology_group(topology_group):
+    """
+    Convert topology group into a {tag: url} mapping.
+    """
+    if isinstance(topology_group, dict):
+        return topology_group
+
+    mapping = {}
+    if isinstance(topology_group, list):
+        for item in topology_group:
+            if not isinstance(item, dict):
+                continue
+
+            tag = item.get("Tag") or item.get("tag")
+            url = item.get("Url") or item.get("url")
+
+            if tag and url:
+                mapping[tag] = url
+
+    return mapping
+
+def assign_secret_key(base_url, database_name, key, cert_path):
+    """
+    Distribute the encryption key to ALL nodes in the cluster.
+    """   
+    topology_response = requests.get(
+        f"{base_url.rstrip('/')}/cluster/topology",
+        cert=cert_path,
+        verify=False
+    )
+    topology_response.raise_for_status()
+    data = topology_response.json()
+    topology = data.get("Topology") or data
+
+    all_nodes = normalize_topology_group(topology.get("AllNodes", {}))
+    members = normalize_topology_group(topology.get("Members", {}))
+    promotables = normalize_topology_group(topology.get("Promotables", {}))
+    watchers = normalize_topology_group(topology.get("Watchers", {}))
+
+    if all_nodes:
+        tags = sorted(all_nodes.keys())
+    else:
+        tags = sorted(set(list(members.keys()) + list(promotables.keys()) + list(watchers.keys())))
+
+    if not tags:
+        raise Exception("No nodes found in cluster topology.")
+
+    params = [("name", database_name)]
+    for t in tags:
+        params.append(("node", t))
+
+
+    distribute_url = "{}/admin/secrets/distribute".format(base_url.rstrip("/"))
+    headers = {"Content-Type": "text/plain"}
+
+    response = requests.post(
+        distribute_url,
+        params=params,
+        data=key,
+        headers=headers,
+        cert=cert_path,
+        verify=False
+    )
+    if response.status_code not in (200, 201, 204):
+        raise Exception("Assigning encryption key failed: HTTP {} - {}".format(response.status_code, response.text))
+    return {"distributed_to": tags, "status": response.status_code}
+
+def get_current_db_settings(store, db_name):
+    """
+    Returns dict of customized settings 
+    """
+    s = store.maintenance.send(GetDatabaseSettingsOperation(db_name))
+    return (s.settings or {}) if s else {}
+
+
+def diff_settings(desired, current):
+    """
+    Compare desired and current settings.
+    Returns dict of settings to apply.
+    """
+    to_apply = {}
+    for k, v in (desired or {}).items():
+        dv = "" if v is None else str(v)
+        cv = current.get(k)
+        if cv != dv:
+            to_apply[k] = dv
+    return to_apply
 
 def is_valid_url(url):
     """Return True if the given URL contains a valid scheme and netloc."""
@@ -228,17 +468,57 @@ def is_valid_state(state):
     """Return True if the state is either 'present' or 'absent'."""
     return state in ['present', 'absent']
 
+def validate_encryption_params(module, desired_state, certificate_path, encrypted, encryption_key, generate_encryption_key, encryption_key_output_path):
+    """
+    Validate parameters when creating an encrypted database.
+    """
+    if desired_state == 'present' and encrypted:
+        if not certificate_path:
+            module.fail_json(msg="encrypted=true requires certificate_path for admin endpoints.")
+
+        if not (generate_encryption_key or encryption_key):
+            module.fail_json(msg="encrypted=true requires either generate_encryption_key=true or encryption_key=<path>.")
+
+        if generate_encryption_key and encryption_key:
+            module.fail_json(msg="generate_encryption_key and encryption_key are mutually exclusive.")
+
+        if encryption_key_output_path and not generate_encryption_key:
+            module.fail_json(msg="encryption_key_output_path can only be used when generate_encryption_key=true.")
+
+        if encryption_key:
+            valid, error_msg = validate_paths(encryption_key)
+            if not valid:
+                module.fail_json(msg=error_msg)
+
+def validate_database_settings(module, db_settings):
+    """Validate and normalize database_settings."""
+    if not isinstance(db_settings, dict):
+        module.fail_json(msg="database_settings must be a dict.")
+    normalized = {}
+    for k, v in db_settings.items():
+        if not isinstance(k, str):
+            module.fail_json(msg="database_settings keys must be strings. Bad key: {!r}".format(k))
+        normalized[k] = "" if v is None else str(v)
+    return normalized
 
 def main():
     module_args = ravendb_common_argument_spec()
     module_args.update(
         replication_factor=dict(type='int', default=1),
-        state=dict(type='str', choices=['present', 'absent'], default='present')
+        state=dict(type='str', choices=['present', 'absent'], default='present'),
+        encrypted=dict(type='bool', default=False),
+        encryption_key=dict(type='str', required=False),
+        generate_encryption_key=dict(type='bool', default=False),
+        encryption_key_output_path=dict(type='str', required=False),
+        database_settings=dict(type='dict', default={}),
     )
 
     module = AnsibleModule(
         argument_spec=module_args,
-        supports_check_mode=True
+        supports_check_mode=True,
+         mutually_exclusive=[
+            ('generate_encryption_key', 'encryption_key')
+        ]
     )
 
     if not HAS_LIB:
@@ -246,12 +526,20 @@ def main():
             msg=missing_required_lib("ravendb"),
             exception=LIB_IMP_ERR)
 
+    if module.params.get('encrypted') and not HAS_REQUESTS:
+            module.fail_json(msg="Python 'requests' library is required for encrypted databases. Please install it.")
+
     url = module.params['url']
     database_name = module.params['database_name']
     replication_factor = module.params['replication_factor']
     certificate_path = module.params.get('certificate_path')
     ca_cert_path = module.params.get('ca_cert_path')
     desired_state = module.params['state']
+    encrypted = module.params['encrypted']
+    encryption_key = module.params.get('encryption_key')
+    generate_encryption_key = module.params.get('generate_encryption_key')
+    encryption_key_output_path = module.params.get('encryption_key_output_path')
+    db_settings = module.params.get('database_settings')
 
     if not is_valid_url(url):
         module.fail_json(msg="Invalid URL: {}".format(url))
@@ -272,13 +560,17 @@ def main():
         module.fail_json(
             msg="Invalid state: {}. Must be 'present' or 'absent'.".format(desired_state))
 
+    validate_encryption_params(module, desired_state, certificate_path, encrypted, encryption_key, generate_encryption_key, encryption_key_output_path)
+
+    settings = validate_database_settings(module, db_settings)
+
     try:
-        store = create_store(url, certificate_path, ca_cert_path)
+        store = create_store(url, database_name, certificate_path, ca_cert_path)
         check_mode = module.check_mode
 
         if desired_state == 'present':
             changed, message = handle_present_state(
-                store, database_name, replication_factor, check_mode)
+                store, database_name, replication_factor, url, certificate_path, encrypted, generate_encryption_key, encryption_key, encryption_key_output_path, settings, check_mode=check_mode)
         elif desired_state == 'absent':
             changed, message = handle_absent_state(
                 store, database_name, check_mode)
