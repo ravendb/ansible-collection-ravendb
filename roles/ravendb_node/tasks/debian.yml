@@ -8,6 +8,7 @@
     - bzip2
     - jq
     - unzip
+    - openssl
 
 - name: Determine Ubuntu version and architecture
   set_fact:

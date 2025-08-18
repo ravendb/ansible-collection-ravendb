@@ -3,6 +3,7 @@ Description=RavenDB
 After=network.target
 
 [Service]
+LimitMEMLOCK=infinity
 LimitCORE=infinity
 LimitNOFILE=65535
 LimitRSS=infinity

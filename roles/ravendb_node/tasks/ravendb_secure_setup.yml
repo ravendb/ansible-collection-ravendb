@@ -1,47 +1,67 @@
 - block: 
-  - name: Read license.json from the target machine
-    become: true
-    ansible.builtin.slurp:
-      src: /etc/ravendb/license.json
-    register: license_content
+  - name: Assert required inputs
+    assert:
+      that:
+        - (ravendb_setup_package | length) > 0
+        - node_tag is defined
+      fail_msg: "Please set ravendb_setup_package (controller path to ZIP) and per-host node_tag in inventory."
 
-  - name: Generate secure-setup.json on the target machine
-    become: true
-    ansible.builtin.template:
-      src: secure-setup.json.j2
-      dest: /etc/ravendb/security/secure-setup.json
-    vars:
-      license: "{{ license_content.content | b64decode | from_json }}"
-
-  - name: Set ownership and permissions for secure-setup.json
+  - name: Ensure /etc/ravendb/security exists
     become: true
     ansible.builtin.file:
-      path: /etc/ravendb/security/secure-setup.json
+      path: /etc/ravendb/security
+      state: directory
       owner: ravendb
       group: ravendb
-      mode: '0640'
+      mode: '0750'
 
-  - name: Obtain rvn setup package
+  - name: Copy prebuilt setup package from controller
     become: true
-    ansible.builtin.command: >
-      ./rvn create-setup-package -m="lets-encrypt" -s="/etc/ravendb/security/secure-setup.json" -o="/etc/ravendb/security/setup_package.zip"
-    args:
-      chdir: /usr/lib/ravendb/server/
-    register: rvn_command_result
-    changed_when: "'setup_package.zip' in rvn_command_result.stdout"
-    failed_when:
-      - rvn_command_result.rc != 0
-      - "'setup_package.zip' not in rvn_command_result.stdout"
-    retries: 5
-    delay: 60
-    until: rvn_command_result.rc == 0
-
+    ansible.builtin.copy:
+      src: "{{ ravendb_setup_package }}"
+      dest: /etc/ravendb/security/setup_package.zip
+      owner: ravendb
+      group: ravendb
+      mode: '0640' 
+      
   - name: Unzip setup package file
     become: true
     ansible.builtin.unarchive:
       src: /etc/ravendb/security/setup_package.zip
       dest: /etc/ravendb/security/
       remote_src: yes
+
+  - name: Combine admin client crt+key into full PEM
+    become: true
+    shell: |
+      cat /etc/ravendb/security/admin.client.certificate*.crt \
+          /etc/ravendb/security/admin.client.certificate*.key \
+          > /etc/ravendb/security/admin.client.combined.pem
+    args:
+      creates: /etc/ravendb/security/admin.client.combined.pem
+
+  - name: Fix ownership/permissions for PEM bundle
+    become: true
+    file:
+      path: /etc/ravendb/security/admin.client.combined.pem
+      owner: ravendb
+      group: ravendb
+      mode: '0640'
+
+  - name: Add License.Eula.Accepted to settings.json
+    become: true
+    ansible.builtin.lineinfile:
+      path: /etc/ravendb/security/{{ node_tag }}/settings.json
+      line: '  "License.Eula.Accepted": true,'
+      insertbefore: '"Setup.Mode":.*'
+
+  - name: Add License.Path to settings.json
+    become: true
+    when: ravendb_license_file | default('', true) | length > 0
+    ansible.builtin.lineinfile:
+      path: /etc/ravendb/security/{{ node_tag }}/settings.json
+      line: '  "License.Path": "/etc/ravendb/license.json",'
+      insertafter: '"License.Eula.Accepted": true'
 
   - name: Copy generated settings.json
     become: true
@@ -53,6 +73,32 @@
       group: ravendb
       mode: '0644'
       force: yes
+
+  - name: Read /etc/ravendb/settings.json
+    become: true
+    ansible.builtin.slurp:
+      src: /etc/ravendb/settings.json
+    register: _settings_slurp
+
+  - name: Parse settings
+    set_fact:
+      _settings: "{{ _settings_slurp.content | b64decode | from_json }}"
+
+  - name: Derive and normalize hostnames from settings.json
+    set_fact:
+      ravendb_hostnames: >-
+        {{
+          (
+            [
+              _settings.get('PublicServerUrl', ''),
+              _settings.get('PublicServerUrl.Tcp', _settings.get('PublicServerUrl_Tcp', ''))
+            ]
+            | reject('equalto','')
+            | map('regex_replace', '^(https?://|tcp://)', '')
+            | map('regex_replace', ':[0-9]+$', '')
+            | list
+          ) | unique
+        }}
 
   - name: Update certificate path in generated settings.json
     become: true
@@ -76,12 +122,5 @@
       group: ravendb
       mode: '0640'
     loop: "{{ pfx_files.files }}"
-
-  - name: Add License.Eula.Accepted to settings.json
-    become: true
-    ansible.builtin.lineinfile:
-      path: /etc/ravendb/settings.json
-      line: '  "License.Eula.Accepted": true,'
-      insertbefore: '"Setup.Mode":.*'
-
+    
   tags: config,secured
