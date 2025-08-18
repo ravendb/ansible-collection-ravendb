@@ -22,7 +22,6 @@ ravendb_settings_preset: local_setup (default: None)
 # secure setup variables
 ravendb_certificate_file: 
 ravendb_certificate_password: 
-ravendb_certificate_letsencrypt_email: 
 
 # add/override settings
 ravendb_settings_override:

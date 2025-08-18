@@ -57,23 +57,10 @@ argument_specs:
         default: false
         description: "Enable or disable secure RavenDB setup."
 
-      ravendb_admin_email:
+      ravendb_setup_package:
         type: str
         required: false
-        default: ""
-        description: "Administrator email for the secured RavenDB instance."
-
-      ravendb_domain:
-        type: str
-        required: false
-        default: ""
-        description: "Domain name for the secured RavenDB instance."
-
-      ravendb_root_domain:
-        type: str
-        required: false
-        default: ""
-        description: "Root domain for the secured RavenDB instance."
+        description: "Controller-side path to prebuilt setup_package.zip."
 
       # secured_self_signed args
       ravendb_secured_self_signed_enabled:
@@ -94,12 +81,6 @@ argument_specs:
         no_log: true
         default: ""
         description: "Password for the SSL certificate."
-
-      ravendb_certificate_letsencrypt_email:
-        type: str
-        required: false
-        default: ""
-        description: "Email used for Let's Encrypt SSL certificate generation."
 
       ravendb_ca_certificate_file:
         type: path
