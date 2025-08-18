@@ -1,6 +1,6 @@
 ---
 - name: Reset Index
-  hosts: ravendb_nodes
+  hosts: localhost
   gather_facts: no
 
   roles:

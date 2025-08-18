@@ -1,6 +1,6 @@
 ---
 - name: Delete Database (secured server)
-  hosts: ravendb_nodes
+  hosts: localhost
   gather_facts: no
 
   roles:
