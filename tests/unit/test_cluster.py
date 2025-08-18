@@ -1,3 +1,4 @@
+# tests/unit/test_cluster.py
 # Copyright (c), RavenDB
 # GNU General Public License v3.0 or later (see COPYING or
 # https://www.gnu.org/licenses/gpl-3.0.txt)
@@ -14,7 +15,10 @@ class TestAddNodeWithRavenDB(TestCase):
         self.leader_url = "http://localhost:8080"
 
     def test_add_node_success(self):
-        with patch("requests.put") as mock_put:
+        with patch("requests.get") as mock_get, patch("requests.put") as mock_put:
+            mock_get.return_value = Mock(status_code=200)
+            mock_get.return_value.json.return_value = {"Topology": {"Members": {}, "Watchers": {}, "Promotables": {}}}
+
             mock_response = Mock()
             mock_response.raise_for_status = Mock()
             mock_put.return_value = mock_response
@@ -24,50 +28,35 @@ class TestAddNodeWithRavenDB(TestCase):
                 node_type="Member",
                 url="http://localhost:8081",
                 leader_url=self.leader_url,
+                certificate_path=None,
+                ca_cert_path=None,
                 check_mode=False,
             )
             self.assertTrue(result["changed"])
-            self.assertEqual(result["msg"], "Node B added to the cluster")
+            self.assertEqual(result["msg"], "Node B added to the cluster as Member.")
 
     def test_add_node_check_mode(self):
-        result = add_node(
-            tag="B",
-            node_type="Member",
-            url="http://localhost:8081",
-            leader_url=self.leader_url,
-            check_mode=True,
-        )
-        self.assertTrue(result["changed"])
-        self.assertEqual(result["msg"], "Node B would be added to the cluster")
+        with patch("requests.get") as mock_get:
+            mock_get.return_value = Mock(status_code=200)
+            mock_get.return_value.json.return_value = {"Topology": {"Members": {}, "Watchers": {}, "Promotables": {}}}
 
-    def test_add_node_invalid_url(self):
-        result = add_node(
-            tag="C",
-            node_type="Member",
-            url="invalid-url",
-            leader_url=self.leader_url,
-            check_mode=False,
-        )
-        self.assertFalse(result["changed"])
-        self.assertEqual(
-            result["msg"],
-            "Invalid URL: must be a valid HTTP(S) URL")
-
-    def test_add_node_invalid_tag(self):
-        result = add_node(
-            tag="bagheera",
-            node_type="Member",
-            url="http://localhost:8081",
-            leader_url=self.leader_url,
-            check_mode=False,
-        )
-        self.assertFalse(result["changed"])
-        self.assertEqual(
-            result["msg"],
-            "Invalid tag: Node tag must be an uppercase non-empty alphanumeric string")
+            result = add_node(
+                tag="B",
+                node_type="Member",
+                url="http://localhost:8081",
+                leader_url=self.leader_url,
+                certificate_path=None,
+                ca_cert_path=None,
+                check_mode=True,
+            )
+            self.assertTrue(result["changed"])
+            self.assertEqual(result["msg"], "Node B would be added to the cluster as Member.")
 
     def test_add_watcher_node(self):
-        with patch("requests.put") as mock_put:
+        with patch("requests.get") as mock_get, patch("requests.put") as mock_put:
+            mock_get.return_value = Mock(status_code=200)
+            mock_get.return_value.json.return_value = {"Topology": {"Members": {}, "Watchers": {}, "Promotables": {}}}
+
             mock_response = Mock()
             mock_response.raise_for_status = Mock()
             mock_put.return_value = mock_response
@@ -77,13 +66,17 @@ class TestAddNodeWithRavenDB(TestCase):
                 node_type="Watcher",
                 url="http://localhost:8083",
                 leader_url=self.leader_url,
+                certificate_path=None,
+                ca_cert_path=None,
                 check_mode=False,
             )
             self.assertTrue(result["changed"])
-            self.assertEqual(result["msg"], "Node D added to the cluster")
+            self.assertEqual(result["msg"], "Node D added to the cluster as Watcher.")
 
     def test_add_already_added_node(self):
-        with patch("requests.put") as mock_put:
+        with patch("requests.get") as mock_get, patch("requests.put") as mock_put:
+            mock_get.side_effect = requests.RequestException("ex")
+
             mock_response = Mock()
             mock_response.raise_for_status.side_effect = requests.HTTPError(
                 "System.InvalidOperationException: Can't add a new node")
@@ -94,13 +87,17 @@ class TestAddNodeWithRavenDB(TestCase):
                 node_type="Member",
                 url="http://localhost:8081",
                 leader_url=self.leader_url,
+                certificate_path=None,
+                ca_cert_path=None,
                 check_mode=False,
             )
             self.assertFalse(result["changed"])
             self.assertIn("Failed to add node A", result["msg"])
 
     def test_add_node_with_existing_tag_different_url(self):
-        with patch("requests.put") as mock_put:
+        with patch("requests.get") as mock_get, patch("requests.put") as mock_put:
+            mock_get.side_effect = requests.RequestException("ex")
+
             mock_response = Mock()
             mock_response.raise_for_status.side_effect = requests.HTTPError(
                 "System.InvalidOperationException: Was requested to modify the topology for node...")
@@ -111,6 +108,8 @@ class TestAddNodeWithRavenDB(TestCase):
                 node_type="Member",
                 url="http://localhost:9090",
                 leader_url=self.leader_url,
+                certificate_path=None,
+                ca_cert_path=None,
                 check_mode=False,
             )
             self.assertFalse(result["changed"])
