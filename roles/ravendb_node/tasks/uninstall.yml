@@ -12,7 +12,7 @@
       ansible.builtin.systemd:
         name: ravendb
         state: stopped
-      when: "'ravendb.service' in services"  
+      when: "'ravendb.service' in ansible_facts.services"
       ignore_errors: true
 
     - name: Disable RavenDB service
@@ -20,7 +20,7 @@
       ansible.builtin.systemd:
         name: ravendb
         enabled: no
-      when: "'ravendb.service' in services"  
+      when: "'ravendb.service' in ansible_facts.services"
       ignore_errors: true
 
     - name: Reset failed systemd services
@@ -32,7 +32,14 @@
       ansible.builtin.file:
         path: /etc/systemd/system/ravendb.service
         state: absent
-    
+
+    - name: Remove RavenDB cluster hostnames from /etc/hosts
+      become: true
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} RAVENDB-CLUSTER HOSTS"
+        state: absent
+
     - name: Purge RavenDB package from dpkg
       become: true
       ansible.builtin.command:
@@ -71,6 +78,6 @@
       command:
         cmd: ldconfig
       changed_when: false
-      
-    - name: Clean up Python prerequisites
+
+    - name: Clean up Python prerequisites`
       import_tasks: ravendb_python_client_prerequisites_uninstall.yml
