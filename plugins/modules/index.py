@@ -233,8 +233,9 @@ try:
         StartIndexOperation,
         StopIndexOperation,
         GetIndexingStatusOperation,
-        ResetIndexOperation)
-    from ravendb.documents.indexes.definitions import IndexRunningStatus
+        ResetIndexOperation,
+        GetIndexStatisticsOperation)
+    from ravendb.documents.indexes.definitions import IndexRunningStatus, IndexState
     from ravendb.exceptions.raven_exceptions import RavenException
     HAS_LIB = True
 except ImportError:
@@ -282,8 +283,9 @@ def initialize_ravendb_store(params):
     ca_cert_path = params.get('ca_cert_path')
 
     store = DocumentStore(urls=[url], database=database_name)
-    if certificate_path and ca_cert_path:
+    if certificate_path:
         store.certificate_pem_path = certificate_path
+    if ca_cert_path:
         store.trust_store_path = ca_cert_path
 
     store.initialize()
@@ -434,6 +436,10 @@ def index_matches(existing_index, index_definition):
 
 def enable_index(store, index_name, cluster_wide, check_mode):
     """Enable a RavenDB index, optionally cluster-wide. Respect check mode."""
+    current = get_index_state(store, index_name)
+    if current != IndexState.DISABLED:
+        return "ok", False, "Index '{}' is already enabled.".format(index_name)
+    
     if check_mode:
         return "ok", True, "Index '{}' would be enabled{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
 
@@ -445,6 +451,10 @@ def enable_index(store, index_name, cluster_wide, check_mode):
 
 def disable_index(store, index_name, cluster_wide, check_mode):
     """Disable a RavenDB index, optionally cluster-wide. Respect check mode."""
+    current = get_index_state(store, index_name)
+    if current == IndexState.DISABLED:
+        return "ok", False, "Index '{}' is already disabled.".format(index_name)
+
     if check_mode:
         return "ok", True, "Index '{}' would be disabled{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
 
@@ -496,6 +506,10 @@ def reset_index(store, index_name, check_mode):
 
     return "ok", True, "Index '{}' reset successfully.".format(index_name)
 
+def get_index_state(store, index_name):
+    """Return the logical index state"""
+    stats = store.maintenance.send(GetIndexStatisticsOperation(index_name))
+    return stats.state
 
 def apply_mode(store, index_name, mode, cluster_wide, check_mode):
     """Dispatch index mode operation based on the given mode string."""
