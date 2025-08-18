@@ -31,11 +31,10 @@ class TestDBStateValidator(TestCase):
             database="test_create_database")
 
         db_name = "test_db"
-        replication_factor = 1
         check_mode = False
 
-        changed, message = handle_present_state(
-            store, db_name, replication_factor, check_mode)
+        changed, message = handle_present_state(store, db_name, 1, "http://localhost:8080", None, False, False, None, None, {}, check_mode)
+
         self.assertTrue(changed)
         self.assertIn("Database '{}' created successfully.".format(db_name), message)
 
@@ -45,13 +44,10 @@ class TestDBStateValidator(TestCase):
             database="test_create_already_created_database")
 
         db_name = "test_db1"
-        replication_factor = 1
         check_mode = False
 
-        changed, message = handle_present_state(
-            store, db_name, replication_factor, check_mode)
-        changed, message = handle_present_state(
-            store, db_name, replication_factor, check_mode)
+        changed, message = handle_present_state(store, db_name, 1, "http://localhost:8080", None, False, False, None, None, {}, check_mode)
+        changed, message = handle_present_state(store, db_name, 1, "http://localhost:8080", None, False, False, None, None, {}, check_mode)
 
         self.assertFalse(changed)
         self.assertIn("Database '{}' already exists.".format(db_name), message)
@@ -65,8 +61,7 @@ class TestDBStateValidator(TestCase):
         replication_factor = 1
         check_mode = False
 
-        changed, message = handle_present_state(
-            store, db_name, replication_factor, check_mode)
+        changed, message = handle_present_state(store, db_name, 1, "http://localhost:8080", None, False, False, None, None, {}, check_mode)
         changed, message = handle_absent_state(store, db_name, check_mode)
 
         self.assertTrue(changed)
