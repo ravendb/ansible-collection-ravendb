@@ -141,7 +141,7 @@ def is_valid_url(url):
 
 def is_valid_tag(tag):
     """Return True if the tag is a non-empty uppercase alphanumeric string of max 4 chars."""
-    return isinstance(tag, str) and tag.isalnum() and tag.isupper() and 1 < len(tag) < 4
+    return isinstance(tag, str) and tag.isalnum() and tag.isupper() and 1 <= len(tag) <= 4
 
 
 def validate_paths(*paths):
