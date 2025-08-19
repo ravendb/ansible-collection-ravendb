@@ -178,6 +178,7 @@ try:
     from ravendb.exceptions.raven_exceptions import RavenException
     from ravendb.serverwide.operations.configuration import GetDatabaseSettingsOperation, PutDatabaseSettingsOperation
     from ravendb.documents.operations.server_misc import ToggleDatabasesStateOperation
+    from ravendb.serverwide.operations.common import GetDatabaseRecordOperation
     HAS_LIB = True
 except ImportError:
     HAS_LIB = False
@@ -227,34 +228,21 @@ def handle_present_state(store, database_name, replication_factor, url, certific
         if check_mode:
             return True, "Database '{}' would be created.".format(database_name)
 
-        database_record = DatabaseRecord(database_name)
-        if encrypted:
-            database_record.encrypted = True
-
-        create_database_operation = CreateDatabaseOperation(
-            database_record=database_record,
-            replication_factor=replication_factor
-        )
-        store.maintenance.server.send(create_database_operation)
-
-        created_msg = "Database '{}' created successfully{}.".format(database_name, " (encrypted)" if encrypted else "")
+        create_database(store, database_name, replication_factor, encrypted)
         created = True
+        created_msg = "Database '{}' created successfully{}.".format(database_name, " (encrypted)" if encrypted else "")
+
     else:
+        mismatch_result = verify_encryption_or_fail(store, database_name, encrypted, check_mode)
+        if mismatch_result is not None:
+            return mismatch_result
+
         created = False
         created_msg = "Database '{}' already exists.".format(database_name)
 
-    if db_settings:
-        current_settings = get_current_db_settings(store, database_name)
-        to_apply = diff_settings(db_settings, current_settings)
-
-        if to_apply:
-            if check_mode:
-                return True, "{} Would apply settings ({}) and reload.".format(created_msg, ", ".join(sorted(to_apply.keys())))
-
-            store.maintenance.send(PutDatabaseSettingsOperation(database_name, to_apply))
-            store.maintenance.server.send(ToggleDatabasesStateOperation(database_name, True))
-            store.maintenance.server.send(ToggleDatabasesStateOperation(database_name, False))
-            return True, "{} Applied settings ({}) and reloaded.".format(created_msg, ", ".join(sorted(to_apply.keys())))
+    reconcile_result = reconcile_db_settings(store, database_name, db_settings, check_mode, created_msg)
+    if reconcile_result:
+        return reconcile_result
 
     if created:
         return True, created_msg
@@ -277,6 +265,88 @@ def handle_absent_state(store, database_name, check_mode):
     delete_database_operation = DeleteDatabaseOperation(database_name)
     store.maintenance.server.send(delete_database_operation)
     return True, "Database '{}' deleted successfully.".format(database_name)
+
+
+def create_database(store, database_name, replication_factor, encrypted):
+    """
+    Create a new database on the server.
+    Sets the encrypted flag if requested.
+    """
+    database_record = DatabaseRecord(database_name)
+    if encrypted:
+        database_record.encrypted = True
+
+    create_database_operation = CreateDatabaseOperation(
+        database_record=database_record,
+        replication_factor=replication_factor
+    )
+    store.maintenance.server.send(create_database_operation)
+
+
+def fetch_db_record(store, database_name):
+    """
+    Fetch the database record for the specified database.
+    Returns a DatabaseRecord or None if not found.
+    """
+    return store.maintenance.server.send(GetDatabaseRecordOperation(database_name))
+
+
+def verify_encryption_or_fail(store, database_name, desired_encrypted, check_mode):
+    """
+    Verify that the encryption status of the database matches what is requested.
+    Returns None if status matches.
+    Returns (False, message) in check mode if it would fail.
+    Raises an Exception if mismatch is detected in normal mode.
+    """
+    record = fetch_db_record(store, database_name)
+    if record is None:
+        raise Exception("Database '{}' is listed but its record could not be fetched.".format(database_name))
+
+    actual_flag = getattr(record, "encrypted", False)
+    actual_is_encrypted = (actual_flag is True)
+    desired_is_encrypted = (desired_encrypted is True)
+    if (desired_is_encrypted and not actual_is_encrypted) or (not desired_is_encrypted and actual_is_encrypted):
+        msg = (
+            "Database '{name}' already exists but encryption status is '{actual}' while requested '{desired}'. "
+            "RavenDB does not support toggling encryption on an existing database. "
+            "Delete & recreate, or backup and restore with the desired key."
+        ).format(
+            name=database_name,
+            actual=actual_flag,
+            desired=desired_encrypted
+        )
+        if check_mode:
+            return (False, "Would fail: " + msg)
+        raise Exception(msg)
+
+    return None
+
+
+def reconcile_db_settings(store, database_name, db_settings, check_mode, prefix_msg):
+    """
+    Ensure the specified database has the desired settings.
+    Return either:
+      - a tuple: (changed: bool, message: str)
+      - None when no settings or no diffs
+    """
+    if not db_settings:
+        return None
+
+    current_settings = get_current_db_settings(store, database_name)
+    to_apply = diff_settings(db_settings, current_settings)
+
+    if not to_apply:
+        return None
+
+    keys_str = ", ".join(sorted(to_apply.keys()))
+
+    if check_mode:
+        return True, "{} Would apply settings ({}) and reload.".format(prefix_msg, keys_str)
+
+    store.maintenance.send(PutDatabaseSettingsOperation(database_name, to_apply))
+    store.maintenance.server.send(ToggleDatabasesStateOperation(database_name, True))
+    store.maintenance.server.send(ToggleDatabasesStateOperation(database_name, False))
+    return True, "{} Applied settings ({}) and reloaded.".format(prefix_msg, keys_str)
 
 
 def ensure_secret_assigned(url, database_name, certificate_path, generate_encryption_key, encryption_key, encryption_key_output_path, check_mode):

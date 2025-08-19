@@ -125,8 +125,9 @@ class TestValidationFunctions(TestCase):
         self.assertFalse(is_valid_url(123))
 
     def test_valid_tag(self):
-        self.assertTrue(is_valid_tag("NODE1"))
-        self.assertTrue(is_valid_tag("CLUSTERX"))
+        self.assertTrue(is_valid_tag("A1"))
+        self.assertTrue(is_valid_tag("BB"))
+        self.assertFalse(is_valid_tag("AAAAA"))
         self.assertFalse(is_valid_tag("node1"))
         self.assertFalse(is_valid_tag("NODE-1"))
         self.assertFalse(is_valid_tag(""))

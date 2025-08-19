@@ -1,5 +1,5 @@
 [Unit]
-Description=RavenDB
+Description=RavenDB NoSQL Database
 After=network.target
 
 [Service]
@@ -9,10 +9,10 @@ LimitNOFILE=65535
 LimitRSS=infinity
 LimitAS=infinity
 TasksMax=infinity
-User=ravendb
+User=RAVENDB_USERNAME
 StartLimitBurst=0
 Restart=on-failure
-Type=simple
+Type=exec
 TimeoutStopSec=300
 Environment="RAVEN_DataDir=/var/lib/ravendb/data"
 Environment="RAVEN_Indexing_NugetPackagesPath=/var/lib/ravendb/nuget"
