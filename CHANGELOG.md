@@ -36,3 +36,13 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
 ### Fixed
 - Ensured all modules correctly import and expose shared argument definitions.
 
+
+## [1.0.3] - 2025-08-19
+
+### Added
+- Support for encrypted databases in `ravendb.ravendb.database`:
+  - Generate or read encryption keys.
+  - Distribute keys across all cluster nodes.
+  - Create databases with encryption enabled.
+- Ability to manage database settings via the `ravendb.ravendb.database` module.
+- Joining Let's Encrypt–secured nodes into existing RavenDB clusters.

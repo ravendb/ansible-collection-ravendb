@@ -7,4 +7,4 @@
           ravendb_state: present
           ravendb_version_minor: 6.2
           ravendb_hostname: "{{ ansible_host }}"
-          ravendb_license_file: "/home/omer/license/license.json"
+          ravendb_license_file: "license.json"

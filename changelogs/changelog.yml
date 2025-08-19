@@ -33,3 +33,15 @@ releases:
           - Centralized common arguments (`url`, `database_name`, `certification_path`, `ca_cert_path`) under `module_utils` and `doc_fragments` for reuse across modules.
       - fixed:
           - Ensured all modules properly import and expose shared options from centralized definitions.
+
+  - name: "Encrypted DB &  Cluster Enhancements"
+    tag: "v1.0.3"
+    version: "1.0.3"
+    changes:
+      - added:
+          - Support for encrypted databases in `ravendb.ravendb.database`:
+              - Generate or read encryption keys.
+              - Distribute keys across all cluster nodes.
+              - Create databases with encryption enabled.
+          - Ability to manage database settings via the `ravendb.ravendb.database` module.
+          - Joining Let's Encrypt–secured nodes into existing RavenDB clusters.

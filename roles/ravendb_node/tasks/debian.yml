@@ -9,6 +9,7 @@
     - jq
     - unzip
     - openssl
+    - ca-certificates 
 
 - name: Determine Ubuntu version and architecture
   set_fact:

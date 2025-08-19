@@ -173,45 +173,6 @@
   ansible.builtin.include_tasks: ravendb_secure_self_sign_setup.yml
   when: ravendb_secured_self_signed_enabled | default(false)
 
-- name: Build cluster /etc/hosts block from hostvars
-  run_once: true
-  when: not ravendb_binary.stat.exists
-  vars:
-    _nodes: "{{ groups['ravendb_nodes'] | default([]) }}"
-  set_fact:
-    _ravendb_hosts_block: |
-      {% for h in _nodes %}
-      {%   set ip = (
-             hostvars[h].ravendb_bind_ip
-             | default(hostvars[h].ansible_host
-             | default(hostvars[h].inventory_hostname
-             | default(hostvars[h].ansible_default_ipv4.address
-             | default(h))))
-           ) %}
-      {%   set names = (hostvars[h].ravendb_hostnames | default([])) | unique %}
-      {%   if names | length > 0 %}
-      {{ ip }} {{ names | join(' ') }}
-      {%   endif %}
-      {% endfor %}
-
-- name: Ensure RavenDB cluster hosts are present in /etc/hosts on all nodes
-  run_once: true
-  become: true
-  when:
-    - not ravendb_binary.stat.exists
-    - _ravendb_hosts_block | trim | length > 0
-  ansible.builtin.blockinfile:
-    path: /etc/hosts
-    marker: "# {mark} RAVENDB-CLUSTER HOSTS"
-    block: "{{ _ravendb_hosts_block | trim }}"
-    create: true
-    insertafter: EOF
-  loop: "{{ groups['ravendb_nodes'] | default([]) }}"
-  loop_control:
-    loop_var: target_host
-  delegate_to: "{{ target_host }}"
-  tags: secured,config
-
 - name: Copy settings file
   become: true
   ansible.builtin.copy:

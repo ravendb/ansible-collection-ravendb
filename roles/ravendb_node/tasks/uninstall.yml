@@ -33,13 +33,6 @@
         path: /etc/systemd/system/ravendb.service
         state: absent
 
-    - name: Remove RavenDB cluster hostnames from /etc/hosts
-      become: true
-      ansible.builtin.blockinfile:
-        path: /etc/hosts
-        marker: "# {mark} RAVENDB-CLUSTER HOSTS"
-        state: absent
-
     - name: Purge RavenDB package from dpkg
       become: true
       ansible.builtin.command:

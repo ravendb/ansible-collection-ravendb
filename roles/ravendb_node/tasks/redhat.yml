@@ -8,6 +8,7 @@
     - libicu
     - unzip
     - openssl
+    - ca-certificates
   when: molecule is not defined
 
 - block:
