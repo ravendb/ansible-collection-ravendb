@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # -*- coding: utf-8 -*-
 
 # Copyright (c), RavenDB
@@ -13,81 +12,67 @@ DOCUMENTATION = '''
 module: index
 short_description: Manage RavenDB indexes
 description:
-    - This module allows you to create, delete, pause, resume, enable, disable, or reset RavenDB indexes.
-    - Supports check mode to simulate changes without applying them.
-    - Can create dynamic single-map and multi-map indexes based on a provided index definition.
+  - Create, delete, update, or apply operational modes to RavenDB indexes.
+  - Supports both single-map and multi-map index definitions (with optional reduce).
+  - Supports check mode to simulate changes without applying them.
+  - Can reconcile per-index configuration via C(index_configuration).
 version_added: "1.0.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
 
 extends_documentation_fragment:
-- ravendb.ravendb.ravendb
+  - ravendb.ravendb.ravendb
 
 options:
-    url:
-        description:
-            - URL of the RavenDB server.
-            - Must include the scheme (http or https), hostname and port.
-        required: true
-        type: str
-    database_name:
-        description:
-            - Name of the database where the index resides/should be reside.
-        required: true
-        type: str
-    index_name:
-        description:
-            - Name of the index to create, delete, or modify.
-            - Must consist only of letters, numbers, dashes, and underscores.
-        required: true
-        type: str
-    index_definition:
-        description:
-            - Dictionary defining the index (maps and optional reduce).
-            - Required when creating a new index.
-        required: false
-        type: dict
-    certificate_path:
-        description:
-            - Path to a client certificate (PEM format) for secured communication.
-        required: false
-        type: str
-    ca_cert_path:
-        description:
-            - Path to a trusted CA certificate file to verify the RavenDB server's certificate.
-        required: false
-        type: str
-    state:
-        description:
-            - Desired state of the index.
-            - If C(present), the index will be created if it does not exist.
-            - If C(absent), the index will be deleted if it exists.
-        required: false
-        type: str
-        choices:
-          - present
-          - absent
-    mode:
-        description:
-            - Operational mode to apply to an existing index.
-        required: false
-        type: str
-        choices:
-          - resumed
-          - paused
-          - enabled
-          - disabled
-          - reset
-    cluster_wide:
-        description:
-            - Whether to apply enable/disable operations cluster-wide.
-        required: false
-        type: bool
-        default: false
-
+  index_name:
+    description:
+      - Name of the index to create, delete, or modify.
+      - Must consist only of letters, numbers, dashes, and underscores.
+    required: true
+    type: str
+  index_definition:
+    description:
+      - Dictionary defining the index (C(map) list and optional C(reduce) string).
+      - Required when creating a new index.
+      - When present for an existing index, differences are applied idempotently.
+    required: false
+    type: dict
+  state:
+    description:
+      - Desired state of the index.
+      - If C(present), the index will be created if it does not exist, and the definition/configuration will be reconciled.
+      - If C(absent), the index will be deleted if it exists.
+      - If omitted (C(null)), the module operates in "reconcile" mode on existing indexes only (definition, configuration, and/or C(mode)).
+      - If the index does not exist and only C(mode) is provided, the task fails with guidance to use C(state=present).
+    required: false
+    type: str
+    choices: [present, absent]
+    default: null  # CHANGED: explicitly document None-default reconcile behavior
+  mode:
+    description:
+      - Operational mode to apply to an existing index (one of enable/disable/pause/resume/reset).
+      - If the index does not exist and only C(mode) is provided, the task fails with guidance to create it first.
+    required: false
+    type: str
+    choices: [resumed, paused, enabled, disabled, reset]
+  cluster_wide:
+    description:
+      - Whether to apply enable/disable operations cluster-wide.
+    required: false
+    type: bool
+    default: false
+  index_configuration:
+    description:
+      - Per-index configuration key/value pairs to reconcile.
+      - Keys and values are normalized to strings and compared against the current index definition's configuration.
+      - If differences exist, the module updates the definition with the merged configuration.
+    required: false
+    type: dict
+    default: {}  # ADDED
 seealso:
-    - name: RavenDB documentation
-      description: Official RavenDB documentation
-      link: https://ravendb.net/docs
+  - name: RavenDB documentation
+    description: Official RavenDB documentation
+    link: https://ravendb.net/docs
+
 '''
 
 EXAMPLES = '''
@@ -132,12 +117,13 @@ EXAMPLES = '''
         }
     state: present
 
-- name: Delete a RavenDB index
+- name: Reconcile per-index configuration (idempotent)
   ravendb.ravendb.index:
     url: "http://{{ ansible_host }}:8080"
     database_name: "my_database"
     index_name: "UsersByName"
-    state: absent
+    index_configuration:
+      Indexing.MapBatchSize: "128"
 
 - name: Disable a RavenDB index (cluster-wide)
   ravendb.ravendb.index:
@@ -147,35 +133,15 @@ EXAMPLES = '''
     mode: disabled
     cluster_wide: true
 
-- name: Enable a RavenDB index
-  ravendb.ravendb.index:
-    url: "http://{{ ansible_host }}:8080"
-    database_name: "my_database"
-    index_name: "Orders/ByCompany"
-    mode: enabled
-
-- name: Pause a RavenDB index
+- name: Pause a RavenDB index (check mode)
   ravendb.ravendb.index:
     url: "http://{{ ansible_host }}:8080"
     database_name: "my_database"
     index_name: "Orders/ByCompany"
     mode: paused
+  check_mode: yes
 
-- name: Resume a RavenDB index
-  ravendb.ravendb.index:
-    url: "http://{{ ansible_host }}:8080"
-    database_name: "my_database"
-    index_name: "Orders/ByCompany"
-    mode: resumed
-
-- name: Reset a RavenDB index
-  ravendb.ravendb.index:
-    url: "http://{{ ansible_host }}:8080"
-    database_name: "my_database"
-    index_name: "Orders/ByCompany"
-    mode: reset
-
-- name: Update an existing RavenDB index definition
+- name: Update an existing RavenDB index definition (idempotent update)
   ravendb.ravendb.index:
     url: "http://{{ ansible_host }}:8080"
     database_name: "my_database"
@@ -193,379 +159,61 @@ EXAMPLES = '''
           count = g.Sum(x => x.count)
         }
     state: present
+
+- name: Delete a RavenDB index
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "UsersByName"
+    state: absent
+
+- name: Create index with rolling deployment
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "Orders/ByCompany"
+    state: present
+    index_definition:
+      map:
+        - "from o in docs.Orders select new { o.Company }"
+      deployment_mode: rolling
+
 '''
 
 RETURN = '''
 changed:
-    description: Indicates if any change was made (or would have been made in check mode).
-    type: bool
-    returned: always
-    sample: true
+  description: Indicates if any change was made (or would have been made in check mode).
+  type: bool
+  returned: always
+  sample: true
 
 msg:
-    description: Human-readable message describing the result or error.
-    type: str
-    returned: always
-    sample: Index 'Products_ByName' created successfully.
-    version_added: "1.0.0"
+  description: Human-readable message describing the result or error.
+  type: str
+  returned: always
+  sample: Index 'Products_ByName' created successfully.
+  version_added: "1.0.0"
 '''
 
 import traceback
-try:
-    from urllib.parse import urlparse
-except ImportError:
-    from urlparse import urlparse
-import re
-import os
-import sys
 from ansible.module_utils.basic import AnsibleModule, missing_required_lib
 
-LIB_IMP_ERR = None
+LIB_ERR = None
 try:
     from ansible_collections.ravendb.ravendb.plugins.module_utils.common_args import ravendb_common_argument_spec
-    from ravendb import DocumentStore, AbstractIndexCreationTask
-    from ravendb.documents.indexes.abstract_index_creation_tasks import AbstractMultiMapIndexCreationTask
-    from ravendb.documents.operations.indexes import (
-        GetIndexesOperation,
-        DeleteIndexOperation,
-        EnableIndexOperation,
-        DisableIndexOperation,
-        StartIndexOperation,
-        StopIndexOperation,
-        GetIndexingStatusOperation,
-        ResetIndexOperation,
-        GetIndexStatisticsOperation)
-    from ravendb.documents.indexes.definitions import IndexRunningStatus, IndexState
-    from ravendb.exceptions.raven_exceptions import RavenException
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import DocumentStoreFactory
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.validation import (
+        validate_url, validate_database_name, validate_index_name, validate_dict,
+        validate_paths_exist, validate_state_optional, validate_mode, validate_bool, collect_errors
+    )
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.services import index_service as idxsvc
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.services.index_config_service import validate_index_configuration
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.reconcilers.index_reconciler import IndexReconciler
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.index import IndexSpec, IndexDefinitionSpec
     HAS_LIB = True
 except ImportError:
     HAS_LIB = False
-    LIB_IMP_ERR = traceback.format_exc()
-
-
-def create_dynamic_index(name, definition):
-    """Dynamically create a single-map index class based on the given definition."""
-    class DynamicIndex(AbstractIndexCreationTask):
-        def __init__(self):
-            super(DynamicIndex, self).__init__()
-            self.map = definition.get("map")[0]
-            reduce_def = definition.get("reduce")
-            if reduce_def:
-                self.reduce = reduce_def
-
-    DynamicIndex.__name__ = name
-    return DynamicIndex
-
-
-def create_dynamic_multimap_index(name, definition):
-    """Dynamically create a multi-map index class based on the given definition."""
-    class DynamicIndex(AbstractMultiMapIndexCreationTask):
-        def __init__(self):
-            super(DynamicIndex, self).__init__()
-            maps_def = definition.get("map")
-
-            for map_def in maps_def:
-                self._add_map(map_def)
-
-            reduce_def = definition.get("reduce")
-            if reduce_def:
-                self.reduce = reduce_def
-
-    DynamicIndex.__name__ = name
-    return DynamicIndex
-
-
-def initialize_ravendb_store(params):
-    """Create and initialize a RavenDB DocumentStore from Ansible module parameters."""
-    url = params['url']
-    database_name = params['database_name']
-    certificate_path = params.get('certificate_path')
-    ca_cert_path = params.get('ca_cert_path')
-
-    store = DocumentStore(urls=[url], database=database_name)
-    if certificate_path:
-        store.certificate_pem_path = certificate_path
-    if ca_cert_path:
-        store.trust_store_path = ca_cert_path
-
-    store.initialize()
-    return store
-
-
-def reconcile_state(store, params, check_mode):
-    """
-    Determine and apply the required state (present, absent, or mode-only) to an index.
-    Returns a tuple: (status, changed, message)
-    """
-    database_name = params['database_name']
-    index_name = params['index_name']
-    desired_state = params.get('state')
-    desired_mode = params.get('mode')
-    cluster_wide = params['cluster_wide']
-
-    database_maintenance = store.maintenance.for_database(database_name)
-    existing_indexes = database_maintenance.send(
-        GetIndexesOperation(0, sys.maxsize))
-    existing_index_names = [i.name for i in existing_indexes]
-
-    if desired_state == 'absent':
-        return handle_absent_state(
-            database_maintenance,
-            index_name,
-            existing_index_names,
-            check_mode)
-
-    if desired_state == 'present':
-        return handle_present_state(
-            store,
-            database_name,
-            params,
-            index_name,
-            existing_indexes,
-            existing_index_names,
-            check_mode)
-
-    if desired_mode and desired_state is None:
-        return handle_mode_only(
-            store,
-            index_name,
-            desired_mode,
-            cluster_wide,
-            check_mode,
-            existing_index_names)
-
-    return "error", False, "Invalid state or mode combination."
-
-
-def handle_absent_state(
-        database_maintenance,
-        index_name,
-        existing_index_names,
-        check_mode):
-    """Delete the index if it exists. Respect Ansible check mode."""
-    if index_name not in existing_index_names:
-        return "ok", False, "Index '{}' is already absent.".format(index_name)
-
-    if check_mode:
-        return "ok", True, "Index '{}' would be deleted.".format(index_name)
-
-    database_maintenance.send(DeleteIndexOperation(index_name))
-    return "ok", True, "Index '{}' deleted successfully.".format(index_name)
-
-
-def handle_present_state(
-        store,
-        database_name,
-        params,
-        index_name,
-        existing_indexes,
-        existing_index_names,
-        check_mode):
-    """Create or update the index if needed. Respect Ansible check mode."""
-    index_definition = params.get('index_definition')
-    desired_mode = params.get('mode')
-    cluster_wide = params['cluster_wide']
-
-    if index_name in existing_index_names:
-        existing_index = next(
-            i for i in existing_indexes if i.name == index_name)
-        if index_matches(existing_index, index_definition):
-            if desired_mode:
-                return apply_mode(
-                    store,
-                    index_name,
-                    desired_mode,
-                    cluster_wide,
-                    check_mode)
-            return "ok", False, "Index '{}' already exists and matches definition.".format(index_name)
-
-    if check_mode:
-        return "ok", True, "Index '{}' would be created.".format(index_name)
-
-    create_index(store, database_name, index_name, index_definition)
-    if desired_mode:
-        apply_mode(store, index_name, desired_mode, cluster_wide, check_mode)
-
-    return "ok", True, "Index '{}' created successfully.".format(index_name)
-
-
-def handle_mode_only(
-        store,
-        index_name,
-        desired_mode,
-        cluster_wide,
-        check_mode,
-        existing_index_names):
-    """Apply only the desired index mode if the index already exists."""
-    if index_name not in existing_index_names:
-        return "error", False, "Index '{}' does not exist. Cannot apply mode.".format(index_name)
-
-    return apply_mode(
-        store,
-        index_name,
-        desired_mode,
-        cluster_wide,
-        check_mode)
-
-
-def create_index(store, database_name, index_name, index_definition):
-    """Create an index, handling both single-map and multi-map definitions."""
-    if len(index_definition.get("map")) > 1:
-        DynamicIndexClass = create_dynamic_multimap_index(
-            index_name, index_definition)
-    else:
-        DynamicIndexClass = create_dynamic_index(index_name, index_definition)
-    index = DynamicIndexClass()
-    index.execute(store, database_name)
-
-
-def index_matches(existing_index, index_definition):
-    """Check if an existing index matches the expected definition (map/reduce)."""
-    existing_maps = set(map(str.strip, existing_index.maps)
-                        ) if existing_index.maps else set()
-    existing_reduce = getattr(existing_index, 'reduce', None)
-
-    expected_maps = set(map(str.strip, index_definition.get("map", [])))
-    normalized_existing_reduce = existing_reduce.strip() if existing_reduce else None
-    normalized_expected_reduce = (index_definition.get("reduce") or "").strip()
-    if not normalized_expected_reduce:
-        normalized_expected_reduce = None
-
-    return existing_maps == expected_maps and normalized_existing_reduce == normalized_expected_reduce
-
-
-def enable_index(store, index_name, cluster_wide, check_mode):
-    """Enable a RavenDB index, optionally cluster-wide. Respect check mode."""
-    current = get_index_state(store, index_name)
-    if current != IndexState.DISABLED:
-        return "ok", False, "Index '{}' is already enabled.".format(index_name)
-
-    if check_mode:
-        return "ok", True, "Index '{}' would be enabled{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
-
-    enable_index_operation = EnableIndexOperation(index_name, cluster_wide)
-    store.maintenance.send(enable_index_operation)
-
-    return "ok", True, "Index '{}' enabled successfully{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
-
-
-def disable_index(store, index_name, cluster_wide, check_mode):
-    """Disable a RavenDB index, optionally cluster-wide. Respect check mode."""
-    current = get_index_state(store, index_name)
-    if current == IndexState.DISABLED:
-        return "ok", False, "Index '{}' is already disabled.".format(index_name)
-
-    if check_mode:
-        return "ok", True, "Index '{}' would be disabled{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
-
-    disable_index_operation = DisableIndexOperation(index_name, cluster_wide)
-    store.maintenance.send(disable_index_operation)
-
-    return "ok", True, "Index '{}' disbaled successfully{}.".format(index_name, ' cluster-wide' if cluster_wide else '')
-
-
-def resume_index(store, index_name, check_mode):
-    """Resume a paused RavenDB index. Respect check mode."""
-    indexing_status = store.maintenance.send(GetIndexingStatusOperation())
-    index = [x for x in indexing_status.indexes if x.name == index_name][0]
-    if index.status == IndexRunningStatus.RUNNING:
-        return "ok", False, "Index '{}' is already resumed and executing.".format(index_name)
-
-    if check_mode:
-        return "ok", True, "Index '{}' would be resumed.".format(index_name)
-
-    resume_index_operation = StartIndexOperation(index_name)
-    store.maintenance.send(resume_index_operation)
-
-    return "ok", True, "Index '{}' resumed successfully.".format(index_name)
-
-
-def pause_index(store, index_name, check_mode):
-    """Pause a running RavenDB index. Respect check mode."""
-    indexing_status = store.maintenance.send(GetIndexingStatusOperation())
-    index = [x for x in indexing_status.indexes if x.name == index_name][0]
-    if index.status == IndexRunningStatus.PAUSED:
-        return "ok", False, "Index '{}' is already paused.".format(index_name)
-
-    if check_mode:
-        return "ok", True, "Index '{}' would be paused.".format(index_name)
-
-    pause_index_operation = StopIndexOperation(index_name)
-    store.maintenance.send(pause_index_operation)
-
-    return "ok", True, "Index '{}' paused successfully.".format(index_name)
-
-
-def reset_index(store, index_name, check_mode):
-    """Reset an existing index. Respect check mode."""
-    if check_mode:
-        return "ok", True, "Index '{}' would be reset.".format(index_name)
-
-    reset_index_operation = ResetIndexOperation(index_name)
-    store.maintenance.send(reset_index_operation)
-
-    return "ok", True, "Index '{}' reset successfully.".format(index_name)
-
-
-def get_index_state(store, index_name):
-    """Return the logical index state"""
-    stats = store.maintenance.send(GetIndexStatisticsOperation(index_name))
-    return stats.state
-
-
-def apply_mode(store, index_name, mode, cluster_wide, check_mode):
-    """Dispatch index mode operation based on the given mode string."""
-    if mode == 'enabled':
-        return enable_index(store, index_name, cluster_wide, check_mode)
-    elif mode == 'disabled':
-        return disable_index(store, index_name, cluster_wide, check_mode)
-    elif mode == 'resumed':
-        return resume_index(store, index_name, check_mode)
-    elif mode == 'paused':
-        return pause_index(store, index_name, check_mode)
-    elif mode == 'reset':
-        return reset_index(store, index_name, check_mode)
-    else:
-        return "error", False, "Unsupported mode '{}' specified.".format(mode)
-
-
-def is_valid_url(url):
-    """Return True if the URL has a valid scheme and network location."""
-    parsed = urlparse(url)
-    return all([parsed.scheme, parsed.netloc])
-
-
-def is_valid_name(name):
-    """Return True if the name contains only alphanumeric characters, dashes, or underscores."""
-    return bool(re.match(r"^[a-zA-Z0-9_-]+$", name))
-
-
-def is_valid_dict(value):
-    """Return True if the value is a dictionary or None."""
-    return isinstance(value, dict) or value is None
-
-
-def is_valid_bool(value):
-    """Return True if the value is a boolean."""
-    return isinstance(value, bool)
-
-
-def validate_paths(*paths):
-    """Check if all provided file paths exist. Return (True, None) or (False, error message)."""
-    for path in paths:
-        if path and not os.path.isfile(path):
-            return False, "Path does not exist: {}".format(path)
-    return True, None
-
-
-def is_valid_state(state):
-    """Return True if the state is one of: None, 'present', 'absent'."""
-    return state in [None, 'present', 'absent']
-
-
-def is_valid_mode(mode):
-    """Return True if the mode is one of: None, 'resumed', 'paused', 'enabled', 'disabled', 'reset'."""
-    return mode in [None, 'resumed', 'paused', 'enabled', 'disabled', 'reset']
+    LIB_ERR = traceback.format_exc()
 
 
 def main():
@@ -573,81 +221,84 @@ def main():
     module_args.update(
         index_name=dict(type='str', required=True),
         index_definition=dict(type='dict', required=False),
-        state=dict(type='str', choices=['present', 'absent'], required=False),
+        state=dict(type='str', choices=['present', 'absent'], required=False, default=None),
         mode=dict(type='str', choices=['resumed', 'paused', 'enabled', 'disabled', 'reset'], required=False),
-        cluster_wide=dict(type='bool', default=False)
+        cluster_wide=dict(type='bool', default=False),
+        index_configuration=dict(type='dict', required=False, default={})
     )
 
-    module = AnsibleModule(
-        argument_spec=module_args,
-        supports_check_mode=True
-    )
+    module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
 
     if not HAS_LIB:
-        module.fail_json(
-            msg=missing_required_lib("ravendb"),
-            exception=LIB_IMP_ERR)
+        module.fail_json(msg=missing_required_lib("ravendb"), exception=LIB_ERR)
 
     url = module.params['url']
-    database_name = module.params['database_name']
-    index_name = module.params['index_name']
-    index_definition = module.params.get('index_definition')
-    certificate_path = module.params.get('certificate_path')
-    ca_cert_path = module.params.get('ca_cert_path')
+    db_name = module.params['database_name']
+    idx_name = module.params['index_name']
+    raw_def = module.params.get('index_definition')
+    cert_path = module.params.get('certificate_path')
+    ca_path = module.params.get('ca_cert_path')
     state = module.params.get('state')
     mode = module.params.get('mode')
     cluster_wide = module.params['cluster_wide']
+    idx_cfg = module.params.get('index_configuration') or {}
 
-    if not is_valid_url(url):
-        module.fail_json(msg="Invalid URL: {}".format(url))
+    ok, err = collect_errors(
+        validate_url(url),
+        validate_database_name(db_name),
+        validate_index_name(idx_name),
+        validate_dict("index definition", raw_def),
+        validate_paths_exist(cert_path, ca_path),
+        validate_state_optional(state),
+        validate_mode(mode),
+        validate_bool("cluster_wide", cluster_wide),
+    )
+    if not ok:
+        module.fail_json(msg=err)
 
-    if not is_valid_name(database_name):
-        module.fail_json(
-            msg="Invalid database name: {}. Only letters, numbers, dashes, and underscores are allowed.".format(database_name))
+    ok, normalized_cfg, err = validate_index_configuration(idx_cfg)
+    if not ok:
+        module.fail_json(msg=err)
 
-    if not is_valid_name(index_name):
-        module.fail_json(
-            msg="Invalid index name: {}. Only letters, numbers, dashes, and underscores are allowed.".format(index_name))
+    def_spec = IndexDefinitionSpec.from_dict(raw_def) if raw_def else None
+    spec = IndexSpec(
+        db_name=db_name,
+        name=idx_name,
+        definition=def_spec,
+        mode=mode,
+        cluster_wide=cluster_wide,
+        configuration=normalized_cfg or {}
+    )
 
-    if not is_valid_dict(index_definition):
-        module.fail_json(
-            msg="Invalid index definition: Must be a dictionary.")
-
-    valid, error_msg = validate_paths(certificate_path, ca_cert_path)
-    if not valid:
-        module.fail_json(msg=error_msg)
-
-    if not is_valid_state(state):
-        module.fail_json(
-            msg="Invalid state: {}. Must be 'present' or 'absent'.".format(state))
-
-    if not is_valid_mode(mode):
-        module.fail_json(
-            msg="Invalid mode: {}. Must be one of 'resumed', 'paused', 'enabled', 'disabled', 'reset'.".format(mode))
-
-    if not is_valid_bool(cluster_wide):
-        module.fail_json(
-            msg="Invalid cluster_wide flag: {}. Must be a boolean.".format(cluster_wide))
-
+    ctx = None
     try:
-        store = initialize_ravendb_store(module.params)
-        check_mode = module.check_mode
+        ctx = DocumentStoreFactory.create(url, db_name, cert_path, ca_path)
+        reconciler = IndexReconciler(ctx, db_name)
 
-        type, changed, message = reconcile_state(
-            store, module.params, check_mode)
+        exists = idxsvc.get_definition(ctx, db_name, idx_name) is not None
 
-        if type == "error":
-            module.fail_json(changed=changed, msg=message)
+        if state == "absent":
+            res = reconciler.ensure_absent(idx_name, module.check_mode)
+        elif state == "present":
+            res = reconciler.ensure_present(spec, module.check_mode)
         else:
-            module.exit_json(changed=changed, msg=message)
+            if not exists:
+                if mode:
+                    module.fail_json(msg="Index '{}' does not exist. Provide state=present to create it before applying mode.".format(idx_name))
+                module.fail_json(msg="Index '{}' does not exist. Provide state=present and index_definition to create it.".format(idx_name))
 
-    except RavenException as e:
-        module.fail_json(msg="RavenDB operation failed: {}".format(str(e)))
+            res = reconciler.ensure_present(spec, module.check_mode)
+
+        if res.failed:
+            module.fail_json(**res.to_ansible())
+        else:
+            module.exit_json(**res.to_ansible())
+
     except Exception as e:
-        module.fail_json(msg="An unexpected error occurred: {}".format(str(e)))
+        module.fail_json(msg="Unexpected error: {}".format(str(e)))
     finally:
-        if 'store' in locals():
-            store.close()
+        if ctx:
+            ctx.close()
 
 
 if __name__ == '__main__':
