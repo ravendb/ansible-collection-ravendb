@@ -17,12 +17,12 @@ from ansible_collections.ravendb.ravendb.plugins.module_utils.services.index_ser
 )
 
 
-def validate_index_configuration(d: dict) -> tuple:
+def validate_index_configuration(d):
     """Validate and normalize per-index configuration."""
     return validate_kv(d, "index_configuration", allow_none=True)
 
 
-def get_current(ctx: StoreContext, db_name: str, index_name: str) -> dict:
+def get_current(ctx, db_name, index_name):
     """Return per-index configuration as a normalized dict."""
     definition = get_definition(ctx, db_name, index_name)
     if not definition:
@@ -31,12 +31,12 @@ def get_current(ctx: StoreContext, db_name: str, index_name: str) -> dict:
     return normalize_str_values(cfg)
 
 
-def diff(desired: dict, current: dict) -> dict:
+def diff(desired, current):
     """Compute config differences."""
     return diff_kv(desired, current)
 
 
-def _build_index_definition(name: str, maps, reduce: str = None, configuration: dict = None, deployment_mode=None):
+def _build_index_definition(name, maps, reduce=None, configuration=None, deployment_mode=None):
     """Build a minimal IndexDefinition (name, maps, reduce, configuration)."""
     from ravendb.documents.indexes.definitions import IndexDefinition
     idx = IndexDefinition()
@@ -59,7 +59,7 @@ def _build_index_definition(name: str, maps, reduce: str = None, configuration: 
     return idx
 
 
-def _put_index_definition(ctx: StoreContext, db_name: str, index_definition):
+def _put_index_definition(ctx, db_name, index_definition):
     """PUT a single definition using PutIndexesOperation, handling older signatures."""
     from ravendb.documents.operations.indexes import PutIndexesOperation
     m = ctx.maintenance_for_db(db_name)
@@ -71,7 +71,7 @@ def _put_index_definition(ctx: StoreContext, db_name: str, index_definition):
         return m.send(op)
 
 
-def apply(ctx: StoreContext, db_name: str, index_name: str, to_apply: dict) -> None:
+def apply(ctx, db_name, index_name, to_apply):
     """Merge and apply configuration changes to an index."""
     definition = get_definition(ctx, db_name, index_name)
     if not definition:

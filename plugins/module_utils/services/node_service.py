@@ -19,7 +19,7 @@ def _requests():
         raise RuntimeError("Python 'requests' is required for node operations. Install 'requests'.")
 
 
-def node_in_topology(topology, search_tag: str, search_url: str):
+def node_in_topology(topology, search_tag, search_url):
     """
     Return tuple (present: bool, role: str|None, existing_tag: str|None, existing_url: str|None)
     by scanning members/watchers/promotables.
@@ -37,7 +37,7 @@ def node_in_topology(topology, search_tag: str, search_url: str):
     return False, None, None, None
 
 
-def add_node(ctx: StoreContext, tag: str, url: str, *, is_watcher: bool, tls: TLSConfig) -> None:
+def add_node(ctx, tag, url, is_watcher, tls):
     """
     PUT /admin/cluster/node on the leader the ctx is connected to.
     Raises RuntimeError on HTTP error.

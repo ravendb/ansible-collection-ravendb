@@ -37,7 +37,7 @@ def _to_deployment_mode_enum(value):
     raise ValueError("Unknown deployment_mode: {}".format(value))
 
 
-def create_dynamic_index(name: str, definition: dict):
+def create_dynamic_index(name, definition):
     """Dynamically create a single-map index class based on the given definition."""
     from ravendb import AbstractIndexCreationTask
 
@@ -57,7 +57,7 @@ def create_dynamic_index(name: str, definition: dict):
     return DynamicIndex
 
 
-def create_dynamic_multimap_index(name: str, definition: dict):
+def create_dynamic_multimap_index(name, definition):
     """Dynamically create a multi-map index class based on the given definition."""
     from ravendb.documents.indexes.abstract_index_creation_tasks import AbstractMultiMapIndexCreationTask
 
@@ -80,12 +80,12 @@ def create_dynamic_multimap_index(name: str, definition: dict):
     return DynamicIndex
 
 
-def list_definitions(ctx: StoreContext, db_name: str):
+def list_definitions(ctx, db_name):
     from ravendb.documents.operations.indexes import GetIndexesOperation
     return ctx.maintenance_for_db(db_name).send(GetIndexesOperation(0, sys.maxsize)) or []
 
 
-def get_definition(ctx: StoreContext, db_name: str, index_name: str):
+def get_definition(ctx, db_name, index_name):
     defs = list_definitions(ctx, db_name)
     for d in defs:
         if getattr(d, "name", None) == index_name:
@@ -93,7 +93,7 @@ def get_definition(ctx: StoreContext, db_name: str, index_name: str):
     return None
 
 
-def index_matches(existing_index, definition: dict) -> bool:
+def index_matches(existing_index, definition):
     """Check if an existing index matches the expected definition (map/reduce)."""
     if definition is None:
         return True
@@ -118,7 +118,7 @@ def index_matches(existing_index, definition: dict) -> bool:
     return desired_dm == existing_dm
 
 
-def create_index(ctx: StoreContext, db_name: str, name: str, definition: dict) -> None:
+def create_index(ctx, db_name, name, definition):
     """Create an index, handling both single-map and multi-map definitions."""
     if len(definition.get("map")) > 1:
         DynamicIndexClass = create_dynamic_multimap_index(name, definition)
@@ -128,19 +128,19 @@ def create_index(ctx: StoreContext, db_name: str, name: str, definition: dict) -
     index.execute(ctx.store, db_name)
 
 
-def delete_index(ctx: StoreContext, db_name: str, name: str) -> None:
+def delete_index(ctx, db_name, name):
     from ravendb.documents.operations.indexes import DeleteIndexOperation
     ctx.maintenance_for_db(db_name).send(DeleteIndexOperation(name))
 
 
-def get_index_state(ctx: StoreContext, db_name: str, name: str):
+def get_index_state(ctx, db_name, name):
     """Return the logical index state"""
     from ravendb.documents.operations.indexes import GetIndexStatisticsOperation
     stats = ctx.maintenance_for_db(db_name).send(GetIndexStatisticsOperation(name))
     return getattr(stats, "state", None)
 
 
-def enable_index(ctx: StoreContext, db_name: str, name: str, cluster_wide: bool, check_mode: bool):
+def enable_index(ctx, db_name, name, cluster_wide, check_mode):
     """Enable a RavenDB index, optionally cluster-wide."""
     from ravendb.documents.indexes.definitions import IndexState
     from ravendb.documents.operations.indexes import EnableIndexOperation
@@ -156,7 +156,7 @@ def enable_index(ctx: StoreContext, db_name: str, name: str, cluster_wide: bool,
     return True, msg.idx_enabled(name, cluster_wide=cluster_wide)
 
 
-def disable_index(ctx: StoreContext, db_name: str, name: str, cluster_wide: bool, check_mode: bool):
+def disable_index(ctx, db_name, name, cluster_wide, check_mode):
     """Disable a RavenDB index, optionally cluster-wide."""
     from ravendb.documents.indexes.definitions import IndexState
     from ravendb.documents.operations.indexes import DisableIndexOperation
@@ -172,7 +172,7 @@ def disable_index(ctx: StoreContext, db_name: str, name: str, cluster_wide: bool
     return True, msg.idx_disabled(name, cluster_wide=cluster_wide)
 
 
-def resume_index(ctx: StoreContext, db_name: str, name: str, check_mode: bool):
+def resume_index(ctx, db_name, name, check_mode):
     """Resume a paused RavenDB index."""
     from ravendb.documents.operations.indexes import GetIndexingStatusOperation, StartIndexOperation
     from ravendb.documents.indexes.definitions import IndexRunningStatus
@@ -189,7 +189,7 @@ def resume_index(ctx: StoreContext, db_name: str, name: str, check_mode: bool):
     return True, msg.idx_resumed(name)
 
 
-def pause_index(ctx: StoreContext, db_name: str, name: str, check_mode: bool):
+def pause_index(ctx, db_name, name, check_mode):
     """Pause a running RavenDB index."""
     from ravendb.documents.operations.indexes import GetIndexingStatusOperation, StopIndexOperation
     from ravendb.documents.indexes.definitions import IndexRunningStatus
@@ -206,7 +206,7 @@ def pause_index(ctx: StoreContext, db_name: str, name: str, check_mode: bool):
     return True, msg.idx_paused(name)
 
 
-def reset_index(ctx: StoreContext, db_name: str, name: str, check_mode: bool):
+def reset_index(ctx, db_name, name, check_mode):
     """Reset an existing index."""
     from ravendb.documents.operations.indexes import ResetIndexOperation
 
@@ -217,7 +217,7 @@ def reset_index(ctx: StoreContext, db_name: str, name: str, check_mode: bool):
     return True, msg.idx_reset(name)
 
 
-def apply_mode(ctx: StoreContext, db_name: str, name: str, mode: str, cluster_wide: bool, check_mode: bool):
+def apply_mode(ctx, db_name, name, mode, cluster_wide, check_mode):
     """Dispatch mode operation."""
     if mode == "enabled":
         return enable_index(ctx, db_name, name, cluster_wide, check_mode)

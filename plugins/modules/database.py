@@ -40,7 +40,6 @@ options:
     required: false
     type: list
     elements: str
-    default: []
   state:
     description:
       - Desired state of the database.
@@ -196,7 +195,7 @@ except ImportError:
     LIB_ERR = traceback.format_exc()
 
 
-def main() -> None:
+def main():
     module_args = ravendb_common_argument_spec()
     module_args.update(
         replication_factor=dict(type='int', default=1),
@@ -271,15 +270,15 @@ def main() -> None:
         )
 
         if state == "present":
-            res: ModuleResult = reconciler.ensure_present(spec, tls, module.check_mode)
+            res = reconciler.ensure_present(spec, tls, module.check_mode)
         elif state == "absent":
-            res: ModuleResult = reconciler.ensure_absent(name, module.check_mode)
+            res = reconciler.ensure_absent(name, module.check_mode)
         else:
             existing = set(dbs.list_databases(ctx))
             if name not in existing:
                 module.fail_json(msg="Database '{}' does not exist. Provide state=present to create it.".format(name))
 
-            res: ModuleResult = reconciler.ensure_present(spec, tls, module.check_mode)
+            res = reconciler.ensure_present(spec, tls, module.check_mode)
 
         if res.failed:
             module.fail_json(**res.to_ansible())

@@ -7,7 +7,6 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
-
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core import messages as msg
 from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.index import IndexDefinitionSpec
@@ -21,7 +20,7 @@ class IndexReconciler(object):
         self.ctx = ctx
         self.db_name = db_name
 
-    def _apply_index(self, name: str, raw_def: dict, check_mode: bool) -> ModuleResult:
+    def _apply_index(self, name, raw_def, check_mode):
         """Create or update an index with the given raw definition."""
         if check_mode:
             return ModuleResult.ok(msg=msg.idx_would_create(name), changed=True)
@@ -29,7 +28,7 @@ class IndexReconciler(object):
         idxsvc.create_index(self.ctx, self.db_name, name, raw_def)
         return ModuleResult.ok(msg=msg.idx_created(name), changed=True)
 
-    def ensure_absent(self, name: str, check_mode: bool) -> ModuleResult:
+    def ensure_absent(self, name, check_mode):
         """Delete the index if it exists."""
         existing_defs = idxsvc.list_definitions(self.ctx, self.db_name)
         existing_names = [getattr(i, "name", None) for i in existing_defs]
@@ -43,7 +42,7 @@ class IndexReconciler(object):
         idxsvc.delete_index(self.ctx, self.db_name, name)
         return ModuleResult.ok(msg=msg.idx_deleted(name), changed=True)
 
-    def ensure_present(self, spec: IndexSpec, check_mode: bool) -> ModuleResult:
+    def ensure_present(self, spec, check_mode):
         """
         Create or update the index definition, optionally apply mode and per-index configuration.
         """

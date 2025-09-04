@@ -4,20 +4,20 @@
 # GNU General Public License v3.0 or later (see COPYING or
 # https://www.gnu.org/licenses/gpl-3.0.txt)
 
-from __future__ import absolute_import, division, print_function, annotations
+from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services import encryption_service as encsvc
 
 
-def list_databases(ctx: StoreContext, start: int = 0, max: int = 128) -> list:
+def list_databases(ctx, start=0, max=128):
     """Return a list of database names from the server."""
     from ravendb.serverwide.operations.common import GetDatabaseNamesOperation
     return ctx.maintenance_server().send(GetDatabaseNamesOperation(start, max))
 
 
-def get_record(ctx: StoreContext, db_name: str):
+def get_record(ctx, db_name):
     """
     Fetch the database record for the specified database.
     """
@@ -25,7 +25,7 @@ def get_record(ctx: StoreContext, db_name: str):
     return ctx.maintenance_server().send(GetDatabaseRecordOperation(db_name))
 
 
-def create_database(ctx: StoreContext, db_name: str, replication_factor: int, encrypted: bool, members: list = None, tls: TLSConfig = None) -> None:
+def create_database(ctx, db_name, replication_factor, encrypted, members=None, tls=None):
     if members:
         import requests
         body = {
@@ -40,7 +40,7 @@ def create_database(ctx: StoreContext, db_name: str, replication_factor: int, en
             },
         }
         base = ctx.store.urls[0].rstrip("/")
-        url = f"{base}/admin/databases"  # todo: move to client operation when it will be supported
+        url = base + "/admin/databases"  # todo: move to client operation when it will be supported
         cert, verify = (tls or TLSConfig()).to_requests_tuple()
         r = requests.put(url, json=body, cert=cert, verify=verify, timeout=30)
         r.raise_for_status()
@@ -55,14 +55,13 @@ def create_database(ctx: StoreContext, db_name: str, replication_factor: int, en
 
 
 def delete_database(
-    ctx: StoreContext,
-    db_name: str,
-    *,
-    from_nodes: list = None,
-    hard_delete: bool = None,
-    tls: TLSConfig = None,
-    time_to_wait_sec: int = None,
-) -> None:
+    ctx,
+    db_name,
+    from_nodes=None,
+    hard_delete=None,
+    tls=None,
+    time_to_wait_sec=None,
+):
     if not from_nodes and hard_delete is None and time_to_wait_sec is None:
         from ravendb.serverwide.operations.common import DeleteDatabaseOperation
         ctx.maintenance_server().send(DeleteDatabaseOperation(db_name))
@@ -70,7 +69,7 @@ def delete_database(
 
     import requests
     base = ctx.store.urls[0].rstrip("/")
-    url = f"{base}/admin/databases"  # todo: move to client operation when it will be supported
+    url = base + "/admin/databases"  # todo: move to client operation when it will be supported
     params = {}
     if hard_delete is True:
         params["hardDelete"] = "true"
@@ -88,7 +87,7 @@ def delete_database(
     r.raise_for_status()
 
 
-def add_member_if_needed(ctx: StoreContext, db_name: str, node_tag: str, tls: TLSConfig = None) -> bool:
+def add_member_if_needed(ctx, db_name, node_tag, tls=None):
     try:
         rec = get_record(ctx, db_name)
         if node_tag in set(_extract_members_from_record(rec)):
@@ -112,12 +111,12 @@ def add_member_if_needed(ctx: StoreContext, db_name: str, node_tag: str, tls: TL
         raise
 
 
-def _already_member_error(e: Exception) -> bool:
+def _already_member_error(e):
     s = str(e).lower()
     return ("already part of" in s or "already in its topology" in s or "already part of it" in s)
 
 
-def _extract_members_from_record(record) -> list:
+def _extract_members_from_record(record):
     topo = (
         getattr(record, "topology", None) or getattr(record, "Topology", None)
         if record and not isinstance(record, dict)
@@ -126,15 +125,16 @@ def _extract_members_from_record(record) -> list:
     if not topo:
         return []
 
-    def _group(name: str):
+    def _group(name):
         if isinstance(topo, dict):
             return topo.get(name) or topo.get(name.capitalize())
         return getattr(topo, name, None) or getattr(topo, name.capitalize(), None)
 
-    tags: list[str] = []
+    tags = []
     for name in ("members", "promotables", "rehabs"):
         tags.extend(_pluck_tags(_group(name)))
 
+    # filter out falsy values and keep order unique
     return list(dict.fromkeys(t for t in tags if t))
 
 
@@ -167,7 +167,7 @@ def _pluck_tags(group):
     return list(dict.fromkeys(out))
 
 
-def members_delta(record, wanted: list) -> tuple[list, list]:
+def members_delta(record, wanted):
     cur = set(str(x).strip() for x in _extract_members_from_record(record))
     want = set(str(x).strip() for x in (wanted or []))
     to_add = sorted(list(want - cur))
@@ -176,16 +176,15 @@ def members_delta(record, wanted: list) -> tuple[list, list]:
 
 
 def reconcile_membership(
-    ctx: StoreContext,
-    db_name: str,
+    ctx,
+    db_name,
     record,
-    wanted_members: list,
-    *,
-    encrypted: bool,
-    enc_key_path: str = None,
-    tls: TLSConfig = None,
-    check_mode: bool = False,
-) -> tuple[bool, list, list]:
+    wanted_members,
+    encrypted,
+    enc_key_path=None,
+    tls=None,
+    check_mode=False,
+):
     try:
         record = get_record(ctx, db_name)
     except Exception:

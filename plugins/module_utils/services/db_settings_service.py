@@ -11,12 +11,12 @@ from ansible_collections.ravendb.ravendb.plugins.module_utils.core.configuration
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
 
 
-def validate_database_settings(d: dict) -> tuple:
+def validate_database_settings(d):
     """Validate and normalize database_settings."""
     return validate_kv(d, "database_settings", allow_none=True)
 
 
-def get_current(ctx: StoreContext, db_name: str) -> dict:
+def get_current(ctx, db_name):
     """
     Returns dict of current db settings
     """
@@ -25,7 +25,7 @@ def get_current(ctx: StoreContext, db_name: str) -> dict:
     return (s.settings or {}) if s else {}
 
 
-def apply(ctx: StoreContext, db_name: str, to_apply: dict) -> None:
+def apply(ctx, db_name, to_apply):
     from ravendb.serverwide.operations.configuration import PutDatabaseSettingsOperation
     from ravendb.documents.operations.server_misc import ToggleDatabasesStateOperation
     ctx.store.maintenance.send(PutDatabaseSettingsOperation(db_name, to_apply))
@@ -33,7 +33,7 @@ def apply(ctx: StoreContext, db_name: str, to_apply: dict) -> None:
     ctx.maintenance_server().send(ToggleDatabasesStateOperation(db_name, False))
 
 
-def diff(desired: dict, current: dict) -> dict:
+def diff(desired, current):
     """
     Compare desired and current settings.
     Returns dict of settings to apply.

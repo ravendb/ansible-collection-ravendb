@@ -169,7 +169,7 @@ def main():
         )
 
         reconciler = NodeReconciler(ctx)
-        res: ModuleResult = reconciler.ensure_present(spec, tls, module.check_mode)
+        res = reconciler.ensure_present(spec, tls, module.check_mode)
 
         if res.failed:
             module.fail_json(**res.to_ansible())

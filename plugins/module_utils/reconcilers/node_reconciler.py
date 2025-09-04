@@ -19,10 +19,10 @@ class NodeReconciler(object):
     """
     Reconciles a node's presence in a cluster).
     """
-    def __init__(self, ctx: StoreContext):
+    def __init__(self, ctx):
         self.ctx = ctx
 
-    def ensure_present(self, spec, tls: TLSConfig, check_mode: bool) -> ModuleResult:
+    def ensure_present(self, spec, tls, check_mode):
         topology = fetch_topology_http(spec.leader_url, tls)
         present, role, existing_tag, existing_url = node_service.node_in_topology(topology, spec.tag, spec.url)
         if present:
