@@ -46,3 +46,15 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
   - Create databases with encryption enabled.
 - Ability to manage database settings via the `ravendb.ravendb.database` module.
 - Joining Let's Encrypt–secured nodes into existing RavenDB clusters.
+
+
+## [1.0.4] - 2025-09-04
+
+### Added
+- Database placement on specific nodes via `topology_members` in `ravendb.ravendb.database`.
+- Database topology reconciliation: add/remove nodes from a database's topology.
+- Index deployment mode support (`rolling`, `parallel`) in `ravendb.ravendb.index`.
+- Per-index configuration reconciliation via `index_configuration` in `ravendb.ravendb.index`.
+
+### Changed
+- Modularized the project internals for clearer responsibilities and easier maintenance.

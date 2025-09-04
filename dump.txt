@@ -1,0 +1,2663 @@
+### plugins/doc_fragments/ravendb.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+
+class ModuleDocFragment(object):
+    # RavenDB documentation fragment
+    DOCUMENTATION = '''
+    options:
+        url:
+            description:
+                - URL of the RavenDB server.
+                - Must include the scheme (http or https), hostname, and port.
+            required: true
+            type: str
+        database_name:
+            description:
+                - Name of the database.
+                - Must be a valid name containing only letters, numbers, dashes, and underscores.
+            required: true
+            type: str
+        certificate_path:
+            description:
+                - Path to a client certificate (PEM format) for secured communication.
+            required: false
+            type: str
+        ca_cert_path:
+            description:
+                - Path to a trusted CA certificate file to verify the RavenDB server's certificate.
+            required: false
+            type: str
+
+    attributes:
+        check_mode:
+            support: full
+            description: Can run in check_mode and return changed status prediction without modifying target. If not supported, the action will be skipped.
+
+    notes:
+    - The role C(ravendb.ravendb.ravendb_python_client_prerequisites) must be applied before using this module.
+    - Requires the ASP.NET Core Runtime to be installed on the target system.
+
+    requirements:
+    - python >= 3.9
+    - ravendb python client
+    - ASP.NET Core Runtime
+    - requests
+    - Role ravendb.ravendb.ravendb_python_client_prerequisites must be installed before using this module.
+    '''
+
+
+--- END OF plugins/doc_fragments/ravendb.py ---
+
+
+### plugins/module_utils/core/client.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from .deps import require_ravendb
+
+if TYPE_CHECKING:
+    from ravendb import DocumentStore
+
+
+@dataclass
+class StoreContext:
+    store: "DocumentStore"
+
+    def maintenance_server(self):
+        return self.store.maintenance.server
+
+    def maintenance_for_db(self, db_name):
+        return self.store.maintenance.for_database(db_name)
+
+    def close(self):
+        try:
+            self.store.close()
+        except Exception as e:
+            raise e
+
+
+class DocumentStoreFactory:
+    @staticmethod
+    def create(url, database=None, certificate_path=None, ca_cert_path=None):
+        require_ravendb()
+        from ravendb import DocumentStore
+
+        s = DocumentStore(urls=[url], database=database)
+        if certificate_path:
+            s.certificate_pem_path = certificate_path
+        if ca_cert_path:
+            s.trust_store_path = ca_cert_path
+        s.initialize()
+        return StoreContext(store=s)
+
+
+--- END OF plugins/module_utils/core/client.py ---
+
+
+### plugins/module_utils/core/configuration.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+
+def normalize_str_values(d: dict) -> dict:
+    """
+    Return a new dict with all keys as str and values as str (None -> "").
+    """
+    if not d:
+        return {}
+    return {str(k): ("" if v is None else str(v)) for k, v in d.items()}
+
+
+def validate_kv(d: dict, name: str, allow_none: bool = True) -> tuple:
+    """
+    Generic KV validator/normalizer.
+    Returns: (ok: bool, normalized: dict|None, err: str|None)
+    """
+    if d is None:
+        if allow_none:
+            return True, {}, None
+        return False, None, "{} must be a dict.".format(name)
+
+    if not isinstance(d, dict):
+        return False, None, "{} must be a dict.".format(name)
+
+    return True, normalize_str_values(d), None
+
+
+def diff_kv(desired: dict, current: dict) -> dict:
+    """
+    Compare desired vs current (normalized) and return only the keys that differ.
+    """
+    desired_n = normalize_str_values(desired or {})
+    current_n = normalize_str_values(current or {})
+    to_apply: dict = {}
+
+    for k, dv in desired_n.items():
+        if current_n.get(k) != dv:
+            to_apply[k] = dv
+
+    return to_apply
+
+
+--- END OF plugins/module_utils/core/configuration.py ---
+
+
+### plugins/module_utils/core/errors.py - NOT FOUND
+
+### plugins/module_utils/core/messages.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+
+def _enc_suffix(encrypted: bool) -> str:
+    return " (encrypted)" if encrypted else ""
+
+
+def db_exists(n: str) -> str:
+    return "Database '{}' already exists.".format(n)
+
+
+def db_not_exists(n: str) -> str:
+    return "Database '{}' does not exist.".format(n)
+
+
+def db_created(n: str, encrypted: bool = False) -> str:
+    return "Database '{}' created successfully{}.".format(n, _enc_suffix(encrypted))
+
+
+def db_would_create(n: str, encrypted: bool = False) -> str:
+    return "Database '{}' would be created{}.".format(n, _enc_suffix(encrypted))
+
+
+def db_deleted(n: str) -> str:
+    return "Database '{}' deleted successfully.".format(n)
+
+
+def db_would_delete(n: str) -> str:
+    return "Database '{}' would be deleted.".format(n)
+
+
+def db_no_changes(base: str) -> str:
+    return "{} No changes.".format(base)
+
+
+def settings_applied(prefix: str, keys) -> str:
+    ks = ", ".join(sorted(keys)) if not isinstance(keys, str) else keys
+    return "{} Applied settings ({}) and reloaded.".format(prefix, ks)
+
+
+def settings_would_apply(prefix: str, keys) -> str:
+    ks = ", ".join(sorted(keys)) if not isinstance(keys, str) else keys
+    return "{} Would apply settings ({}) and reload.".format(prefix, ks)
+
+
+def would_assign_encryption_key(db: str) -> str:
+    return "Would assign encryption key for database '{}'.".format(db)
+
+
+def assigned_encryption_key(db: str) -> str:
+    return "Assigned encryption key for database '{}'.".format(db)
+
+
+def encryption_mismatch(name: str, actual, desired) -> str:
+    return (
+        "Database '{}' already exists but encryption status is '{}' while requested '{}'. "
+        "RavenDB does not support toggling encryption on an existing database. "
+        "Delete & recreate, or backup and restore with the desired key."
+    ).format(name, actual, desired)
+
+
+def _cluster_suffix(cluster_wide: bool) -> str:
+    return " cluster-wide" if cluster_wide else ""
+
+
+def idx_cfg_applied(index_name: str, keys_str: str) -> str:
+    return "Applied configuration for index '{}' (keys: {}).".format(index_name, keys_str)
+
+
+def idx_cfg_would_apply(index_name: str, keys_str: str) -> str:
+    return "Would apply configuration for index '{}' (keys: {}).".format(index_name, keys_str)
+
+
+def idx_would_enable(name: str, cluster_wide: bool = False) -> str:
+    return "Index '{}' would be enabled{}.".format(name, _cluster_suffix(cluster_wide))
+
+
+def idx_would_disable(name: str, cluster_wide: bool = False) -> str:
+    return "Index '{}' would be disabled{}.".format(name, _cluster_suffix(cluster_wide))
+
+
+def idx_created(name: str) -> str:
+    return "Index '{}' created successfully.".format(name)
+
+
+def idx_would_create(name: str) -> str:
+    return "Index '{}' would be created.".format(name)
+
+
+def idx_deleted(name: str) -> str:
+    return "Index '{}' deleted successfully.".format(name)
+
+
+def idx_would_delete(name: str) -> str:
+    return "Index '{}' would be deleted.".format(name)
+
+
+def idx_enabled(name: str, *, cluster_wide: bool = False) -> str:
+    return "Index '{}' enabled successfully{}.".format(name, _cluster_suffix(cluster_wide))
+
+
+def idx_disabled(name: str, *, cluster_wide: bool = False) -> str:
+    return "Index '{}' disabled successfully{}.".format(name, _cluster_suffix(cluster_wide))
+
+
+def idx_already_enabled(name: str) -> str:
+    return "Index '{}' is already enabled.".format(name)
+
+
+def idx_already_disabled(name: str) -> str:
+    return "Index '{}' is already disabled.".format(name)
+
+
+def idx_resumed(name: str) -> str:
+    return "Index '{}' resumed successfully.".format(name)
+
+
+def idx_already_resumed(name: str) -> str:
+    return "Index '{}' is already running.".format(name)
+
+
+def idx_would_resume(name: str) -> str:
+    return "Index '{}' would be resumed.".format(name)
+
+
+def idx_paused(name: str) -> str:
+    return "Index '{}' paused successfully.".format(name)
+
+
+def idx_already_paused(name: str) -> str:
+    return "Index '{}' is already paused.".format(name)
+
+
+def idx_would_pause(name: str) -> str:
+    return "Index '{}' would be paused.".format(name)
+
+
+def idx_reset(name: str) -> str:
+    return "Index '{}' reset successfully.".format(name)
+
+
+def idx_would_reset(name: str) -> str:
+    return "Index '{}' would be reset.".format(name)
+
+
+def idx_exists(name: str) -> str:
+    return "Index '{}' already exists.".format(name)
+
+
+def idx_already_absent(name: str) -> str:
+    return "Index '{}' is already absent.".format(name)
+
+
+def idx_not_exist_cannot_apply_mode(name: str) -> str:
+    return "Index '{}' does not exist. Cannot apply mode.".format(name)
+
+
+def node_already_present(tag: str, role: str, url: str) -> str:
+    return "Node '{}' already present as {} at {}.".format(tag, role, url)
+
+
+def node_would_add(tag: str, node_type: str) -> str:
+    return "Node '{}' would be added as {}.".format(tag, node_type)
+
+
+def node_added(tag: str, node_type: str) -> str:
+    return "Node '{}' added as {}.".format(tag, node_type)
+
+
+def failed_add_node(tag: str, error: str) -> str:
+    return "Failed to add node '{}': {}".format(tag, error)
+
+
+def _fmt_tags(tags) -> str:
+    return ", ".join(tags) if tags else ""
+
+
+def members_would_reconcile(db: str, to_add: list, to_remove: list) -> str:
+    if to_add and to_remove:
+        return "Database '{}' would reconcile members: add [{}]; remove [{}].".format(db, _fmt_tags(to_add), _fmt_tags(to_remove))
+    if to_add:
+        return "Database '{}' would add members: [{}].".format(db, _fmt_tags(to_add))
+    if to_remove:
+        return "Database '{}' would remove members: [{}].".format(db, _fmt_tags(to_remove))
+    return "Database '{}' membership already matches.".format(db)
+
+
+def members_reconciled(db: str, to_add: list, to_remove: list) -> str:
+    if to_add and to_remove:
+        return "Database '{}' reconciled members: added [{}]; removed [{}].".format(db, _fmt_tags(to_add), _fmt_tags(to_remove))
+    if to_add:
+        return "Database '{}' added members: [{}].".format(db, _fmt_tags(to_add))
+    if to_remove:
+        return "Database '{}' removed members: [{}].".format(db, _fmt_tags(to_remove))
+    return "Database '{}' membership already matched.".format(db)
+
+--- END OF plugins/module_utils/core/messages.py ---
+
+
+### plugins/module_utils/core/result.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function, annotations
+__metaclass__ = type
+from dataclasses import dataclass, field
+
+
+@dataclass
+class ModuleResult:
+    changed: bool = False
+    failed: bool = False
+    msg: str = ""
+    extras: dict = field(default_factory=dict)
+
+    @classmethod
+    def ok(cls, msg: str = "", changed: bool = False, **extras) -> ModuleResult:
+        return cls(changed=changed, failed=False, msg=msg, extras=extras)
+
+    @classmethod
+    def error(cls, msg: str, **extras) -> ModuleResult:
+        return cls(changed=False, failed=True, msg=msg, extras=extras)
+
+    def to_ansible(self) -> dict:
+        data = dict(changed=self.changed, msg=self.msg)
+        if self.failed:
+            data["failed"] = True
+        if self.extras:
+            data.update(self.extras)
+        return data
+
+
+--- END OF plugins/module_utils/core/result.py ---
+
+
+### plugins/module_utils/core/tls.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+from dataclasses import dataclass
+
+
+@dataclass
+class TLSConfig:
+    certificate_path: str = None
+    ca_cert_path: str = None
+
+    def to_requests_tuple(self) -> tuple:
+        """
+        Decide what to pass to requests for TLS.
+        Returns a tuple: (cert, verify)
+        """
+        cert = None
+        verify = True
+
+        if self.certificate_path:
+            cert = self.certificate_path
+            verify = self.ca_cert_path if self.ca_cert_path else False
+        elif self.ca_cert_path:
+            verify = self.ca_cert_path
+
+        return cert, verify
+
+
+--- END OF plugins/module_utils/core/tls.py ---
+
+
+### plugins/module_utils/core/validation.py
+
+# -*- coding: utf-8 -*-
+#
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+
+import os
+import re
+try:
+    from urllib.parse import urlparse
+except ImportError:
+    from urlparse import urlparse
+
+_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_TAG_RE = re.compile(r"^[A-Z0-9]{1,4}$")
+
+
+def is_valid_url(url: str) -> bool:
+    """Return True if the given URL is a string with a valid HTTP or HTTPS scheme."""
+    if not isinstance(url, str):
+        return False
+    parsed = urlparse(url)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def validate_url(url: str) -> tuple:
+    """Validate a URL string and return (ok, error)."""
+    if not is_valid_url(url):
+        return False, "Invalid URL: {}".format(url)
+    return True, None
+
+
+def is_valid_name(name: str) -> bool:
+    """Generic name rule: must contain only letters, numbers, dashes, or underscores."""
+    return isinstance(name, str) and bool(_NAME_RE.match(name))
+
+
+def is_valid_database_name(name: str) -> bool:
+    """Return True if the database name matches RavenDB rules."""
+    return is_valid_name(name)
+
+
+def validate_database_name(name: str) -> tuple:
+    """Validate database name and return (ok, error)."""
+    if not is_valid_database_name(name):
+        return (
+            False,
+            "Invalid database name: {}. Only letters, numbers, dashes, and underscores are allowed.".format(name),
+        )
+    return True, None
+
+
+def is_valid_replication_factor(factor: int) -> bool:
+    """Return True if replication factor is a positive integer."""
+    return isinstance(factor, int) and factor > 0
+
+
+def validate_replication_factor(factor: int) -> tuple:
+    """Validate replication factor and return (ok, error)."""
+    if not is_valid_replication_factor(factor):
+        return False, "Invalid replication factor: {}. Must be a positive integer.".format(factor)
+    return True, None
+
+
+def validate_topology_members(members: list, replication_factor: int) -> tuple:
+    """Validate that topology_members is a list of tags with length == replication_factor."""
+    if not members:
+        return True, None
+    if not isinstance(members, list) or not all(isinstance(m, str) for m in members):
+        return False, "topology_members must be a list of strings."
+    if len(members) != replication_factor:
+        return False, "topology_members length ({}) must equal replication_factor ({}).".format(len(members), replication_factor)
+    return True, None
+
+
+def validate_paths_exist(*paths: str) -> tuple:
+    """Ensure all given file paths exist on the filesystem."""
+    for p in paths:
+        if p and not os.path.isfile(p):
+            return False, "Path does not exist: {}".format(p)
+    return True, None
+
+
+def is_valid_state(state: str) -> bool:
+    """Return True if the state is either 'present' or 'absent'."""
+    return state in ("present", "absent")
+
+
+def validate_state(state: str) -> tuple:
+    """Validate state and return (ok, error)."""
+    if not is_valid_state(state):
+        return False, "Invalid state: {}. Must be 'present' or 'absent'.".format(state)
+    return True, None
+
+
+def is_valid_index_name(name: str) -> bool:
+    return is_valid_name(name)
+
+
+def validate_index_name(name: str) -> tuple:
+    if not is_valid_index_name(name):
+        return False, "Invalid index name: {}. Only letters, numbers, dashes, and underscores are allowed.".format(name)
+    return True, None
+
+
+def validate_state_optional(state: str) -> tuple:
+    """Accepts None, 'present', or 'absent' (for mode-only operations)."""
+    if state is None:
+        return True, None
+    return validate_state(state)
+
+
+def is_valid_mode(mode: str) -> bool:
+    return mode in (None, 'resumed', 'paused', 'enabled', 'disabled', 'reset')
+
+
+def validate_mode(mode: str) -> tuple:
+    if not is_valid_mode(mode):
+        return False, "Invalid mode: {}. Must be one of 'resumed', 'paused', 'enabled', 'disabled', 'reset'.".format(mode)
+    return True, None
+
+
+def is_valid_bool(value) -> bool:
+    return isinstance(value, bool)
+
+
+def validate_bool(name: str, value) -> tuple:
+    if not is_valid_bool(value):
+        return False, "Invalid {} flag: {}. Must be a boolean.".format(name, value)
+    return True, None
+
+
+def is_valid_dict(value) -> bool:
+    return isinstance(value, dict) or value is None
+
+
+def validate_dict(name: str, value) -> tuple:
+    if not is_valid_dict(value):
+        return False, "Invalid {}: Must be a dictionary.".format(name)
+    return True, None
+
+
+def is_valid_tag(tag: str) -> bool:
+    """Return True if the tag is uppercase alphanumeric with length 1..4."""
+    return isinstance(tag, str) and bool(_TAG_RE.match(tag))
+
+
+def validate_tag(tag: str) -> tuple:
+    if not is_valid_tag(tag):
+        return False, "Invalid node tag: {}. Must be uppercase alphanumeric (1–4 chars).".format(tag)
+    return True, None
+
+
+def collect_errors(*results: tuple) -> tuple:
+    """
+    Accept many (ok, err) tuples and return (ok, combined_err_string_or_None).
+    Aggregates all error messages.
+    """
+    errors = [err for ok, err in results if not ok and err]
+    return (len(errors) == 0, "; ".join(errors) if errors else None)
+
+
+--- END OF plugins/module_utils/core/validation.py ---
+
+
+### plugins/module_utils/dto/database.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class EncryptionSpec:
+    enabled: bool = False
+    certificate_path: str = None
+    ca_cert_path: str = None
+    generate_key: bool = False
+    key_path: str = None
+    output_path: str = None
+
+
+@dataclass
+class DatabaseSpec:
+    url: str
+    name: str
+    replication_factor: int = 1
+    settings: dict = field(default_factory=dict)
+    encryption: EncryptionSpec = field(default_factory=EncryptionSpec)
+    members: list = field(default_factory=list)
+
+
+--- END OF plugins/module_utils/dto/database.py ---
+
+
+### plugins/module_utils/dto/index.py
+
+# -*- coding: utf-8 -*-
+#
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+
+class IndexDefinitionSpec(object):
+    def __init__(self, map=None, reduce=None, deployment_mode=None):
+        self.map = list(map or [])
+        self.reduce = reduce
+        self.deployment_mode = deployment_mode
+
+    @classmethod
+    def from_dict(cls, d):
+        if not d:
+            return None
+        maps = d.get("map") or []
+        if isinstance(maps, str):
+            maps = [maps]
+        dm_raw = d.get("deployment_mode") or d.get("DeploymentMode")
+        if dm_raw is None:
+            dm_norm = None
+        else:
+            dm_norm = str(dm_raw).strip().lower()
+        return cls(map=maps, reduce=d.get("reduce"), deployment_mode=dm_norm)
+
+    def to_dict(self):
+        out = {}
+        if self.map:
+            out["map"] = list(self.map)
+        if self.reduce:
+            out["reduce"] = self.reduce
+        if self.deployment_mode:
+            out["deployment_mode"] = self.deployment_mode
+        return out
+
+
+class IndexSpec(object):
+    def __init__(self, db_name, name, definition=None, mode=None, cluster_wide=False, configuration=None):
+        self.db_name = db_name
+        self.name = name
+        self.definition = definition
+        self.mode = mode
+        self.cluster_wide = bool(cluster_wide)
+        self.configuration = dict(configuration or {})
+
+
+--- END OF plugins/module_utils/dto/index.py ---
+
+
+### plugins/module_utils/dto/node.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+from dataclasses import dataclass
+
+
+@dataclass
+class NodeSpec:
+    tag: str
+    url: str
+    leader_url: str
+    node_type: str = "Member"
+
+    @property
+    def is_watcher(self) -> bool:
+        return self.node_type == "Watcher"
+
+
+--- END OF plugins/module_utils/dto/node.py ---
+
+
+### plugins/module_utils/reconcilers/base.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+from dataclasses import dataclass
+
+
+@dataclass
+class ReconcilerContext:
+    check_mode: bool = False
+
+
+--- END OF plugins/module_utils/reconcilers/base.py ---
+
+
+### plugins/module_utils/reconcilers/database_reconciler.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core import messages as msg
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services import database_service as dbs
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services import db_settings_service as setsvc
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services import encryption_service as encsvc
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services.cluster_service import fetch_topology, collect_tags
+from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.database import DatabaseSpec
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
+
+
+class DatabaseReconciler:
+    def __init__(self, ctx: StoreContext) -> None:
+        self.ctx = ctx
+
+    def ensure_present(self, spec: DatabaseSpec, tls: TLSConfig, check_mode: bool) -> ModuleResult:
+        """
+        Ensure the specified database exists.
+        Returns: ModuleResult: contains `changed` (bool) and `msg` (str).
+        """
+        existing_databases = dbs.list_databases(self.ctx)
+        created = False
+
+        if spec.members:
+            wanted = list(dict.fromkeys(spec.members)) 
+            if len(wanted) != spec.replication_factor:
+                return ModuleResult.error( msg="topology_members length ({}) must equal replication_factor ({}).".format(len(wanted), spec.replication_factor))
+            try:
+                cluster_tags = set(collect_tags(fetch_topology(self.ctx)))
+            except Exception as e:
+                return ModuleResult.error(msg="Failed to fetch cluster topology: {}".format(str(e)))
+            
+            missing = [t for t in wanted if t not in cluster_tags]
+            if missing:
+                return ModuleResult.error(msg="Unknown node tags in topology_members: {}".format(", ".join(missing)))
+
+            spec.members = wanted
+
+        if spec.name not in existing_databases:
+            if spec.encryption.enabled:
+                if check_mode:
+                    return ModuleResult.ok(msg=msg.db_would_create(spec.name, encrypted=True), changed=True)
+
+                if spec.encryption.generate_key:
+                    key = encsvc.fetch_generated_key(self.ctx, tls)
+                    if spec.encryption.output_path:
+                        encsvc.write_key_safe(spec.encryption.output_path, key)
+                else:
+                    key = encsvc.read_key(spec.encryption.key_path)
+                encsvc.distribute_key(self.ctx, spec.name, key, tls, only_tags=(spec.members or None))
+                
+            if check_mode:
+                return ModuleResult.ok(msg=msg.db_would_create(spec.name), changed=True)
+
+            dbs.create_database(self.ctx, spec.name, spec.replication_factor, spec.encryption.enabled, members=(spec.members or None), tls=tls)
+            created = True
+            base_msg = msg.db_created(spec.name, encrypted=spec.encryption.enabled)
+
+        else:
+            record = dbs.get_record(self.ctx, spec.name)
+            actual_flag = bool(getattr(record, "encrypted", False))
+            if spec.encryption.enabled != actual_flag:
+                # toggling between encrypted db and regular db is forbidden
+                return ModuleResult.error(msg=msg.encryption_mismatch(spec.name, actual_flag, spec.encryption.enabled))
+            base_msg = msg.db_exists(spec.name)
+            if spec.members:
+                try:
+                    changed_m, to_add, to_remove = dbs.reconcile_membership(
+                        self.ctx,
+                        spec.name,
+                        record,
+                        spec.members,
+                        encrypted=actual_flag,
+                        enc_key_path=spec.encryption.key_path,
+                        tls=tls,
+                        check_mode=check_mode,
+                    )
+                except Exception as e:
+                    return ModuleResult.error(msg=str(e))
+                if changed_m:
+                    if check_mode:
+                        return ModuleResult.ok(msg=msg.members_would_reconcile(spec.name, to_add, to_remove), changed=True)
+                    base_msg = msg.members_reconciled(spec.name, to_add, to_remove)
+                    created = True
+
+        if spec.settings:
+            current = setsvc.get_current(self.ctx, spec.name)
+            to_apply = setsvc.diff(spec.settings, current)
+            if to_apply:
+                if check_mode:
+                    return ModuleResult.ok(msg=msg.settings_would_apply(base_msg, list(to_apply.keys())), changed=True)
+                setsvc.apply(self.ctx, spec.name, to_apply)
+                return ModuleResult.ok(msg=msg.settings_applied(base_msg, list(to_apply.keys())), changed=True)
+
+        if created:
+            return ModuleResult.ok(msg=base_msg, changed=True)
+        return ModuleResult.ok(msg=msg.db_no_changes(base_msg), changed=False)
+
+    def ensure_absent(self, name: str, check_mode: bool) -> ModuleResult:
+        """
+        Ensure the specified database is absent.
+        Returns: ModuleResult: contains `changed` (bool) and `msg` (str).
+        """
+        existing = dbs.list_databases(self.ctx)
+        if name not in existing:
+            return ModuleResult.ok(msg=msg.db_not_exists(name), changed=False)
+
+        if check_mode:
+            return ModuleResult.ok(msg=msg.db_would_delete(name), changed=True)
+
+        dbs.delete_database(self.ctx, name)
+        return ModuleResult.ok(msg=msg.db_deleted(name), changed=True)
+
+
+--- END OF plugins/module_utils/reconcilers/database_reconciler.py ---
+
+
+### plugins/module_utils/reconcilers/index_reconciler.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core import messages as msg
+from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.index import IndexDefinitionSpec
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services import index_service as idxsvc
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services import index_config_service as cfgsvc
+from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.index import IndexSpec
+
+
+class IndexReconciler(object):
+    def __init__(self, ctx, db_name):
+        self.ctx = ctx
+        self.db_name = db_name
+
+    def _apply_index(self, name: str, raw_def: dict, check_mode: bool) -> ModuleResult:
+        """Create or update an index with the given raw definition."""
+        if check_mode:
+            return ModuleResult.ok(msg=msg.idx_would_create(name), changed=True)
+
+        idxsvc.create_index(self.ctx, self.db_name, name, raw_def)
+        return ModuleResult.ok(msg=msg.idx_created(name), changed=True)
+
+    def ensure_absent(self, name: str, check_mode: bool) -> ModuleResult:
+        """Delete the index if it exists."""
+        existing_defs = idxsvc.list_definitions(self.ctx, self.db_name)
+        existing_names = [getattr(i, "name", None) for i in existing_defs]
+
+        if name not in existing_names:
+            return ModuleResult.ok(msg=msg.idx_already_absent(name), changed=False)
+
+        if check_mode:
+            return ModuleResult.ok(msg=msg.idx_would_delete(name), changed=True)
+
+        idxsvc.delete_index(self.ctx, self.db_name, name)
+        return ModuleResult.ok(msg=msg.idx_deleted(name), changed=True)
+
+    def ensure_present(self, spec: IndexSpec, check_mode: bool) -> ModuleResult:
+        """
+        Create or update the index definition, optionally apply mode and per-index configuration.
+        """
+        existing_defs = idxsvc.list_definitions(self.ctx, self.db_name)
+        existing_names = [getattr(i, "name", None) for i in existing_defs]
+        base_msg = None
+        changed_any = False
+
+        if isinstance(spec.definition, IndexDefinitionSpec):
+            raw_def = spec.definition.to_dict()
+        else:
+            raw_def = None
+
+        if spec.name not in existing_names:
+            if raw_def is None:
+                return ModuleResult.error("index_definition is required when creating a new index.")
+
+            result = self._apply_index(spec.name, raw_def, check_mode)
+            base_msg, changed_any = result.msg, True
+
+        else:
+            existing_def = idxsvc.get_definition(self.ctx, self.db_name, spec.name)
+            if raw_def and not idxsvc.index_matches(existing_def, raw_def):
+                result = self._apply_index(spec.name, raw_def, check_mode)
+                base_msg, changed_any = result.msg, True
+            else:
+                base_msg = msg.idx_exists(spec.name)
+
+        if spec.mode:
+            mode_changed, mode_msg = idxsvc.apply_mode(self.ctx, self.db_name, spec.name, spec.mode, spec.cluster_wide, check_mode)
+            if mode_changed:
+                changed_any = True
+                if base_msg:
+                    base_msg = "{} {}".format(base_msg, mode_msg).strip()
+                else:
+                    base_msg = mode_msg
+            else:
+                base_msg = mode_msg or base_msg
+
+        if spec.configuration:
+            current = cfgsvc.get_current(self.ctx, self.db_name, spec.name)
+            to_apply = cfgsvc.diff(spec.configuration, current)
+            if to_apply:
+                keys_str = ", ".join(sorted(to_apply.keys()))
+                if check_mode:
+                    return ModuleResult.ok(msg="{} {}".format(base_msg, msg.idx_cfg_would_apply(spec.name, keys_str)), changed=True)
+
+                cfgsvc.apply(self.ctx, self.db_name, spec.name, to_apply)
+                return ModuleResult.ok(msg="{} {}".format(base_msg, msg.idx_cfg_applied(spec.name, keys_str)), changed=True)
+
+        return ModuleResult.ok(msg=base_msg, changed=changed_any)
+
+
+--- END OF plugins/module_utils/reconcilers/index_reconciler.py ---
+
+
+### plugins/module_utils/reconcilers/node_reconciler.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core import messages as msg
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services.cluster_service import fetch_topology_http
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services import node_service
+
+
+class NodeReconciler(object):
+    """
+    Reconciles a node's presence in a cluster).
+    """
+    def __init__(self, ctx: StoreContext):
+        self.ctx = ctx
+
+    def ensure_present(self, spec, tls: TLSConfig, check_mode: bool) -> ModuleResult:
+        topology = fetch_topology_http(spec.leader_url, tls)
+        present, role, existing_tag, existing_url = node_service.node_in_topology(topology, spec.tag, spec.url)
+        if present:
+            return ModuleResult.ok(msg=msg.node_already_present(existing_tag, role, existing_url), changed=False)
+
+        if check_mode:
+            return ModuleResult.ok(msg=msg.node_would_add(spec.tag, spec.node_type), changed=True)
+
+        try:
+            node_service.add_node(self.ctx, spec.tag, spec.url, is_watcher=spec.is_watcher, tls=tls)
+        except Exception as e:
+            return ModuleResult.error(msg=msg.failed_add_node(spec.tag, str(e)))
+
+        return ModuleResult.ok(msg=msg.node_added(spec.tag, spec.node_type), changed=True)
+
+
+--- END OF plugins/module_utils/reconcilers/node_reconciler.py ---
+
+
+### plugins/module_utils/services/cluster_service.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
+
+
+class ClusterTopology:
+    def __init__(self, members: dict, watchers: dict, promotables: dict):
+        self.members = members
+        self.watchers = watchers
+        self.promotables = promotables
+
+
+def fetch_topology_http(leader_url: str, tls: TLSConfig, timeout: int = 10):
+    import requests
+    cert, verify = tls.to_requests_tuple()
+    endpoint = f"{leader_url.rstrip('/')}/cluster/topology"
+
+    r = requests.get(endpoint, cert=cert, verify=verify, timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
+    topo = data.get("Topology") or data.get("topology") or data
+
+    def _to_map(g):
+        if isinstance(g, dict):
+            return {str(k): ("" if v is None else str(v)) for k, v in g.items()}
+        return {}
+
+    members = _to_map(topo.get("Members") or topo.get("members"))
+    watchers = _to_map(topo.get("Watchers") or topo.get("watchers"))
+    promotables = _to_map(topo.get("Promotables") or topo.get("promotables"))
+
+    return ClusterTopology(members, watchers, promotables)
+
+
+def fetch_topology(ctx: StoreContext):
+    """
+    Fetch cluster topology using RavenDB Python Client.
+    Returns ClusterTopology.
+    """
+    from ravendb.serverwide.commands import GetClusterTopologyCommand
+    cmd = GetClusterTopologyCommand()
+    ctx.store.get_request_executor().execute_command(cmd)
+    return cmd.result.topology
+
+
+def collect_tags(topology) -> list:
+    all_nodes = getattr(topology, "all_nodes", None) or {}
+    if all_nodes:
+        return sorted(all_nodes.keys())
+
+    members = getattr(topology, "members", None) or {}
+    promotables = getattr(topology, "promotables", None) or {}
+    watchers = getattr(topology, "watchers", None) or {}
+    return sorted(set(list(members.keys()) + list(promotables.keys()) + list(watchers.keys())))
+
+
+--- END OF plugins/module_utils/services/cluster_service.py ---
+
+
+### plugins/module_utils/services/database_service.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function, annotations
+__metaclass__ = type
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services import encryption_service as encsvc
+
+
+def list_databases(ctx: StoreContext, start: int = 0, max: int = 128) -> list:
+    """Return a list of database names from the server."""
+    from ravendb.serverwide.operations.common import GetDatabaseNamesOperation
+    return ctx.maintenance_server().send(GetDatabaseNamesOperation(start, max))
+
+
+def get_record(ctx: StoreContext, db_name: str):
+    """
+    Fetch the database record for the specified database.
+    """
+    from ravendb.serverwide.operations.common import GetDatabaseRecordOperation
+    return ctx.maintenance_server().send(GetDatabaseRecordOperation(db_name))
+
+
+def create_database(ctx: StoreContext, db_name: str, replication_factor: int, encrypted: bool, members: list = None, tls: TLSConfig = None) -> None:
+    if members:
+        import requests
+        body = {
+            "DatabaseName": db_name,
+            "ReplicationFactor": len(members),
+            "Encrypted": bool(encrypted),
+            "DisableDynamicNodesDistribution": True,
+            "Topology": {
+                "Members": list(members),
+                "ReplicationFactor": len(members),
+                "DynamicNodesDistribution": False,
+            },
+        }
+        base = ctx.store.urls[0].rstrip("/")
+        url = f"{base}/admin/databases"  # todo: move to client operation when it will be supported
+        cert, verify = (tls or TLSConfig()).to_requests_tuple()
+        r = requests.put(url, json=body, cert=cert, verify=verify, timeout=30)
+        r.raise_for_status()
+        return
+
+    from ravendb.serverwide.database_record import DatabaseRecord
+    from ravendb.serverwide.operations.common import CreateDatabaseOperation
+    rec = DatabaseRecord(db_name)
+    if encrypted:
+        rec.encrypted = True
+    ctx.maintenance_server().send(CreateDatabaseOperation(rec, replication_factor))
+
+
+def delete_database(
+    ctx: StoreContext,
+    db_name: str,
+    *,
+    from_nodes: list = None,
+    hard_delete: bool = None,
+    tls: TLSConfig = None,
+    time_to_wait_sec: int = None,
+) -> None:
+    if not from_nodes and hard_delete is None and time_to_wait_sec is None:
+        from ravendb.serverwide.operations.common import DeleteDatabaseOperation
+        ctx.maintenance_server().send(DeleteDatabaseOperation(db_name))
+        return
+
+    import requests
+    base = ctx.store.urls[0].rstrip("/")
+    url = f"{base}/admin/databases"  # todo: move to client operation when it will be supported
+    params = {}
+    if hard_delete is True:
+        params["hardDelete"] = "true"
+    elif hard_delete is False:
+        params["hardDelete"] = "false"
+    if time_to_wait_sec is not None:
+        params["timeToWaitForConfirmationInSec"] = str(int(time_to_wait_sec))
+
+    payload = {"DatabaseNames": [db_name]}
+    if from_nodes:
+        payload["FromNodes"] = list(from_nodes)
+
+    cert, verify = (tls or TLSConfig()).to_requests_tuple()
+    r = requests.delete(url, params=params, json=payload, cert=cert, verify=verify, timeout=30)
+    r.raise_for_status()
+
+
+def add_member_if_needed(ctx: StoreContext, db_name: str, node_tag: str, tls: TLSConfig = None) -> bool:
+    try:
+        rec = get_record(ctx, db_name)
+        if node_tag in set(_extract_members_from_record(rec)):
+            return False
+    except Exception:
+        pass
+
+    from ravendb.serverwide.operations.common import AddDatabaseNodeOperation
+    try:
+        ctx.maintenance_server().send(AddDatabaseNodeOperation(db_name, node_tag))
+        return True
+    except Exception:
+        try:
+            rec = get_record(ctx, db_name)
+            if node_tag in set(_extract_members_from_record(rec)):
+                return False
+        except Exception:
+            pass
+        raise
+
+
+def _extract_members_from_record(record) -> list:
+    topo = getattr(record, "topology", None) or getattr(record, "Topology", None)
+    members = list(getattr(topo, "members", None) or getattr(topo, "Members", None) or [])
+    promotables = list(getattr(topo, "promotables", None) or getattr(topo, "Promotables", None) or [])
+    rehabs = list(getattr(topo, "rehabs", None) or getattr(topo, "Rehabs", None) or [])
+
+    return list(dict.fromkeys([*(str(x).strip() for x in members + promotables + rehabs)]))
+
+
+def members_delta(record, wanted: list) -> tuple[list, list]:
+    cur = set(str(x).strip() for x in _extract_members_from_record(record))
+    want = set(str(x).strip() for x in (wanted or []))
+    to_add = sorted(list(want - cur))
+    to_remove = sorted(list(cur - want))
+    return to_add, to_remove
+
+
+def reconcile_membership(
+    ctx: StoreContext,
+    db_name: str,
+    record,
+    wanted_members: list,
+    *,
+    encrypted: bool,
+    enc_key_path: str = None,
+    tls: TLSConfig = None,
+    check_mode: bool = False,
+) -> tuple[bool, list, list]:
+    try:
+        record = get_record(ctx, db_name)
+    except Exception:
+        pass
+
+    to_add, to_remove = members_delta(record, wanted_members)
+    if not to_add and not to_remove:
+        return False, [], []
+
+    if check_mode:
+        return True, to_add, to_remove
+
+    changed_any = False
+
+    if encrypted and to_add:
+        if not enc_key_path:
+            raise RuntimeError(
+                "Database '{}' is encrypted. Adding nodes requires 'encryption_key' for key distribution.".format(db_name)
+            )
+        key = encsvc.read_key(enc_key_path)
+        encsvc.distribute_key(ctx, db_name, key, tls or TLSConfig(), only_tags=to_add)
+
+    for t in list(to_add):
+        if add_member_if_needed(ctx, db_name, t, tls=tls):
+            changed_any = True
+
+    if to_remove:
+        delete_database(ctx, db_name, from_nodes=to_remove, hard_delete=False, tls=tls, time_to_wait_sec=30)
+        changed_any = True
+
+    return changed_any, to_add, to_remove
+
+--- END OF plugins/module_utils/services/database_service.py ---
+
+
+### plugins/module_utils/services/db_settings_service.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.configuration import validate_kv, diff_kv
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
+
+
+def validate_database_settings(d: dict) -> tuple:
+    """Validate and normalize database_settings."""
+    return validate_kv(d, "database_settings", allow_none=True)
+
+
+def get_current(ctx: StoreContext, db_name: str) -> dict:
+    """
+    Returns dict of current db settings
+    """
+    from ravendb.serverwide.operations.configuration import GetDatabaseSettingsOperation
+    s = ctx.store.maintenance.send(GetDatabaseSettingsOperation(db_name))
+    return (s.settings or {}) if s else {}
+
+
+def apply(ctx: StoreContext, db_name: str, to_apply: dict) -> None:
+    from ravendb.serverwide.operations.configuration import PutDatabaseSettingsOperation
+    from ravendb.documents.operations.server_misc import ToggleDatabasesStateOperation
+    ctx.store.maintenance.send(PutDatabaseSettingsOperation(db_name, to_apply))
+    ctx.maintenance_server().send(ToggleDatabasesStateOperation(db_name, True))
+    ctx.maintenance_server().send(ToggleDatabasesStateOperation(db_name, False))
+
+
+def diff(desired: dict, current: dict) -> dict:
+    """
+    Compare desired and current settings.
+    Returns dict of settings to apply.
+    """
+    return diff_kv(desired, current)
+
+
+--- END OF plugins/module_utils/services/db_settings_service.py ---
+
+
+### plugins/module_utils/services/encryption_service.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services.cluster_service import fetch_topology, collect_tags
+
+
+def _requests():
+    try:
+        import requests
+        return requests
+    except ImportError:
+        raise RuntimeError("Python 'requests' is required for encryption operations. Install 'requests'.")
+
+
+def fetch_generated_key(ctx: StoreContext, tls: TLSConfig) -> str:
+    """
+    Ask the server to generate an encryption key.
+    """
+    base = ctx.store.urls[0].rstrip("/")
+    url = "{}/admin/secrets/generate".format(base)
+    cert, verify = tls.to_requests_tuple()
+
+    response = _requests().get(url, cert=cert, verify=verify)
+    response.raise_for_status()
+    return response.text.strip()
+
+
+def write_key_safe(path: str, key: str) -> None:
+    """
+    Write the key to 'path'.
+    """
+    import os
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    prev_umask = os.umask(0o177)
+    try:
+        with open(path, "w") as f:
+            f.write(key + "\n")
+    finally:
+        os.umask(prev_umask)
+
+
+def read_key(path: str) -> str:
+    """
+    Read entire file and strip trailing whitespace/newlines.
+    """
+    with open(path, "r") as f:
+        return f.read().strip()
+
+
+def distribute_key(ctx: StoreContext, db_name: str, key: str, tls: TLSConfig, only_tags: list = None) -> list:
+    """
+    Distribute the encryption key to ALL nodes in the cluster.
+    If only_tags is None/empty, distribute to all nodes in the cluster.
+    """
+    if only_tags:
+        tags = list(only_tags)
+    else:
+        topology = fetch_topology(ctx)
+        tags = collect_tags(topology)
+    if not tags:
+        raise RuntimeError("No nodes found in cluster topology.")
+
+    params = [("name", db_name)]
+    for t in tags:
+        params.append(("node", t))
+
+    base = ctx.store.urls[0].rstrip("/")
+    url = "{}/admin/secrets/distribute".format(base)
+    cert, verify = tls.to_requests_tuple()
+
+    response = _requests().post(url, params=params, data=key, headers={"Content-Type": "text/plain"}, cert=cert, verify=verify)
+    if response.status_code not in (200, 201, 204):
+        raise RuntimeError("Assigning encryption key failed: HTTP {} - {}".format(response.status_code, response.text))
+
+    return tags
+
+
+def validate_encryption_params(desired_state: str, tls: TLSConfig, encrypted: bool,
+                               generate_key: bool, key_path: str = None, output_path: str = None) -> tuple:
+    """
+    Validate parameters when creating an encrypted database.
+    """
+    if desired_state == "present" and encrypted:
+        if not tls.certificate_path:
+            return False, "encrypted=true requires certificate_path for admin endpoints."
+
+        if not (generate_key or key_path):
+            return False, "encrypted=true requires either generate_encryption_key=true or key_path=<path>."
+
+        if generate_key and key_path:
+            return False, "generate_encryption_key and key_path are mutually exclusive."
+
+        if output_path and not generate_key:
+            return False, "encryption_key_output_path can only be used when generate_encryption_key=true."
+
+    return True, None
+
+
+--- END OF plugins/module_utils/services/encryption_service.py ---
+
+
+### plugins/module_utils/services/index_config_service.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.configuration import (
+    validate_kv, diff_kv, normalize_str_values
+)
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services.index_service import (
+    get_definition,
+    _normalize_deployment_mode_value, _to_deployment_mode_enum
+)
+
+
+def validate_index_configuration(d: dict) -> tuple:
+    """Validate and normalize per-index configuration."""
+    return validate_kv(d, "index_configuration", allow_none=True)
+
+
+def get_current(ctx: StoreContext, db_name: str, index_name: str) -> dict:
+    """Return per-index configuration as a normalized dict."""
+    definition = get_definition(ctx, db_name, index_name)
+    if not definition:
+        return {}
+    cfg = getattr(definition, "configuration", None) or {}
+    return normalize_str_values(cfg)
+
+
+def diff(desired: dict, current: dict) -> dict:
+    """Compute config differences."""
+    return diff_kv(desired, current)
+
+
+def _build_index_definition(name: str, maps, reduce: str = None, configuration: dict = None, deployment_mode=None):
+    """Build a minimal IndexDefinition (name, maps, reduce, configuration)."""
+    from ravendb.documents.indexes.definitions import IndexDefinition
+    idx = IndexDefinition()
+    idx.name = name
+    if maps:
+        if isinstance(maps, set):
+            idx.maps = maps
+        elif isinstance(maps, (list, tuple)):
+            idx.maps = set(maps)
+        else:
+            raise TypeError("maps must be a list/tuple/set of strings")
+    if reduce:
+        idx.reduce = reduce
+    cfg = normalize_str_values(configuration or {})
+    if cfg:
+        idx.configuration = cfg
+    if deployment_mode:
+        idx.deployment_mode = _to_deployment_mode_enum(deployment_mode)
+
+    return idx
+
+
+def _put_index_definition(ctx: StoreContext, db_name: str, index_definition):
+    """PUT a single definition using PutIndexesOperation, handling older signatures."""
+    from ravendb.documents.operations.indexes import PutIndexesOperation
+    m = ctx.maintenance_for_db(db_name)
+    try:
+        op = PutIndexesOperation(index_definition)
+        return m.send(op)
+    except TypeError:
+        op = PutIndexesOperation([index_definition])
+        return m.send(op)
+
+
+def apply(ctx: StoreContext, db_name: str, index_name: str, to_apply: dict) -> None:
+    """Merge and apply configuration changes to an index."""
+    definition = get_definition(ctx, db_name, index_name)
+    if not definition:
+        raise RuntimeError("Index definition '{}' not found while applying configuration.".format(index_name))
+
+    current_cfg = normalize_str_values(getattr(definition, "configuration", None) or {})
+    merged_cfg = dict(current_cfg)
+    merged_cfg.update(to_apply)
+
+    maps = list(definition.maps) if getattr(definition, "maps", None) else []
+    reduce = getattr(definition, "reduce", None)
+    existing_dm = _normalize_deployment_mode_value(getattr(definition, "deployment_mode", None))
+
+    new_def = _build_index_definition(index_name, maps, reduce, merged_cfg, deployment_mode=existing_dm)
+    _put_index_definition(ctx, db_name, new_def)
+
+
+--- END OF plugins/module_utils/services/index_config_service.py ---
+
+
+### plugins/module_utils/services/index_service.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+import sys
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core import messages as msg
+
+
+def _normalize_deployment_mode_value(value):
+    if value is None:
+        return None
+
+    name = getattr(value, "name", None)
+    s = str(name if name else value).strip().lower()
+    if "rolling" in s:
+        return "rolling"
+    if "parallel" in s:
+        return "parallel"
+    return s
+
+
+def _to_deployment_mode_enum(value):
+    if value is None:
+        return None
+    from ravendb.documents.indexes.definitions import IndexDeploymentMode
+    norm = _normalize_deployment_mode_value(value)
+    if norm == "rolling":
+        return IndexDeploymentMode.ROLLING
+    if norm == "parallel":
+        return IndexDeploymentMode.PARALLEL
+    raise ValueError("Unknown deployment_mode: {}".format(value))
+
+
+def create_dynamic_index(name: str, definition: dict):
+    """Dynamically create a single-map index class based on the given definition."""
+    from ravendb import AbstractIndexCreationTask
+
+    class DynamicIndex(AbstractIndexCreationTask):
+        def __init__(self):
+            super(DynamicIndex, self).__init__()
+            self.map = definition.get("map")[0]
+            reduce_def = definition.get("reduce")
+            if reduce_def:
+                self.reduce = reduce_def
+
+            dm = definition.get("deployment_mode") or definition.get("DeploymentMode")
+            if dm:
+                self.deployment_mode = _to_deployment_mode_enum(dm)
+
+    DynamicIndex.__name__ = name
+    return DynamicIndex
+
+
+def create_dynamic_multimap_index(name: str, definition: dict):
+    """Dynamically create a multi-map index class based on the given definition."""
+    from ravendb.documents.indexes.abstract_index_creation_tasks import AbstractMultiMapIndexCreationTask
+
+    class DynamicIndex(AbstractMultiMapIndexCreationTask):
+        def __init__(self):
+            super(DynamicIndex, self).__init__()
+            maps_def = definition.get("map") or []
+            for map_def in maps_def:
+                self._add_map(map_def)
+
+            reduce_def = definition.get("reduce")
+            if reduce_def:
+                self.reduce = reduce_def
+
+            dm = definition.get("deployment_mode") or definition.get("DeploymentMode")
+            if dm:
+                self.deployment_mode = _to_deployment_mode_enum(dm)
+
+    DynamicIndex.__name__ = name
+    return DynamicIndex
+
+
+def list_definitions(ctx: StoreContext, db_name: str):
+    from ravendb.documents.operations.indexes import GetIndexesOperation
+    return ctx.maintenance_for_db(db_name).send(GetIndexesOperation(0, sys.maxsize)) or []
+
+
+def get_definition(ctx: StoreContext, db_name: str, index_name: str):
+    defs = list_definitions(ctx, db_name)
+    for d in defs:
+        if getattr(d, "name", None) == index_name:
+            return d
+    return None
+
+
+def index_matches(existing_index, definition: dict) -> bool:
+    """Check if an existing index matches the expected definition (map/reduce)."""
+    if definition is None:
+        return True
+
+    existing_maps = set(map(str.strip, existing_index.maps)) if getattr(existing_index, "maps", None) else set()
+    existing_reduce = getattr(existing_index, "reduce", None)
+
+    expected_maps = set(map(str.strip, definition.get("map", [])))
+    normalized_existing_reduce = existing_reduce.strip() if isinstance(existing_reduce, str) and existing_reduce else None
+    normalized_expected_reduce = (definition.get("reduce") or "").strip()
+    if not normalized_expected_reduce:
+        normalized_expected_reduce = None
+
+    if not (existing_maps == expected_maps and normalized_existing_reduce == normalized_expected_reduce):
+        return False
+
+    desired_dm = _normalize_deployment_mode_value(definition.get("deployment_mode") or definition.get("DeploymentMode"))
+    if desired_dm is None:
+        return True
+
+    existing_dm = _normalize_deployment_mode_value(getattr(existing_index, "deployment_mode", None))
+    return desired_dm == existing_dm
+
+
+def create_index(ctx: StoreContext, db_name: str, name: str, definition: dict) -> None:
+    """Create an index, handling both single-map and multi-map definitions."""
+    if len(definition.get("map")) > 1:
+        DynamicIndexClass = create_dynamic_multimap_index(name, definition)
+    else:
+        DynamicIndexClass = create_dynamic_index(name, definition)
+    index = DynamicIndexClass()
+    index.execute(ctx.store, db_name)
+
+
+def delete_index(ctx: StoreContext, db_name: str, name: str) -> None:
+    from ravendb.documents.operations.indexes import DeleteIndexOperation
+    ctx.maintenance_for_db(db_name).send(DeleteIndexOperation(name))
+
+
+def get_index_state(ctx: StoreContext, db_name: str, name: str):
+    """Return the logical index state"""
+    from ravendb.documents.operations.indexes import GetIndexStatisticsOperation
+    stats = ctx.maintenance_for_db(db_name).send(GetIndexStatisticsOperation(name))
+    return getattr(stats, "state", None)
+
+
+def enable_index(ctx: StoreContext, db_name: str, name: str, cluster_wide: bool, check_mode: bool):
+    """Enable a RavenDB index, optionally cluster-wide."""
+    from ravendb.documents.indexes.definitions import IndexState
+    from ravendb.documents.operations.indexes import EnableIndexOperation
+
+    current = get_index_state(ctx, db_name, name)
+    if current != IndexState.DISABLED:
+        return False, msg.idx_already_enabled(name)
+
+    if check_mode:
+        return True, msg.idx_would_enable(name, cluster_wide)
+
+    ctx.maintenance_for_db(db_name).send(EnableIndexOperation(name, cluster_wide))
+    return True, msg.idx_enabled(name, cluster_wide=cluster_wide)
+
+
+def disable_index(ctx: StoreContext, db_name: str, name: str, cluster_wide: bool, check_mode: bool):
+    """Disable a RavenDB index, optionally cluster-wide."""
+    from ravendb.documents.indexes.definitions import IndexState
+    from ravendb.documents.operations.indexes import DisableIndexOperation
+
+    current = get_index_state(ctx, db_name, name)
+    if current == IndexState.DISABLED:
+        return False, msg.idx_already_disabled(name)
+
+    if check_mode:
+        return True, msg.idx_would_disable(name, cluster_wide)
+
+    ctx.maintenance_for_db(db_name).send(DisableIndexOperation(name, cluster_wide))
+    return True, msg.idx_disabled(name, cluster_wide=cluster_wide)
+
+
+def resume_index(ctx: StoreContext, db_name: str, name: str, check_mode: bool):
+    """Resume a paused RavenDB index."""
+    from ravendb.documents.operations.indexes import GetIndexingStatusOperation, StartIndexOperation
+    from ravendb.documents.indexes.definitions import IndexRunningStatus
+
+    status = ctx.maintenance_for_db(db_name).send(GetIndexingStatusOperation())
+    index = next((x for x in getattr(status, "indexes", []) if x.name == name), None)
+    if index and index.status == IndexRunningStatus.RUNNING:
+        return False, msg.idx_already_resumed(name)
+
+    if check_mode:
+        return True, msg.idx_would_resume(name)
+
+    ctx.maintenance_for_db(db_name).send(StartIndexOperation(name))
+    return True, msg.idx_resumed(name)
+
+
+def pause_index(ctx: StoreContext, db_name: str, name: str, check_mode: bool):
+    """Pause a running RavenDB index."""
+    from ravendb.documents.operations.indexes import GetIndexingStatusOperation, StopIndexOperation
+    from ravendb.documents.indexes.definitions import IndexRunningStatus
+
+    status = ctx.maintenance_for_db(db_name).send(GetIndexingStatusOperation())
+    index = next((x for x in getattr(status, "indexes", []) if x.name == name), None)
+    if index and index.status == IndexRunningStatus.PAUSED:
+        return False, msg.idx_already_paused(name)
+
+    if check_mode:
+        return True, msg.idx_would_pause(name)
+
+    ctx.maintenance_for_db(db_name).send(StopIndexOperation(name))
+    return True, msg.idx_paused(name)
+
+
+def reset_index(ctx: StoreContext, db_name: str, name: str, check_mode: bool):
+    """Reset an existing index."""
+    from ravendb.documents.operations.indexes import ResetIndexOperation
+
+    if check_mode:
+        return True, msg.idx_would_reset(name)
+
+    ctx.maintenance_for_db(db_name).send(ResetIndexOperation(name))
+    return True, msg.idx_reset(name)
+
+
+def apply_mode(ctx: StoreContext, db_name: str, name: str, mode: str, cluster_wide: bool, check_mode: bool):
+    """Dispatch mode operation."""
+    if mode == "enabled":
+        return enable_index(ctx, db_name, name, cluster_wide, check_mode)
+    if mode == "disabled":
+        return disable_index(ctx, db_name, name, cluster_wide, check_mode)
+    if mode == "resumed":
+        return resume_index(ctx, db_name, name, check_mode)
+    if mode == "paused":
+        return pause_index(ctx, db_name, name, check_mode)
+    if mode == "reset":
+        return reset_index(ctx, db_name, name, check_mode)
+    return False, "Unsupported mode '{}' specified.".format(mode)
+
+
+--- END OF plugins/module_utils/services/index_service.py ---
+
+
+### plugins/module_utils/services/node_service.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
+
+
+def _requests():
+    try:
+        import requests
+        return requests
+    except ImportError:
+        raise RuntimeError("Python 'requests' is required for node operations. Install 'requests'.")
+
+
+def node_in_topology(topology, search_tag: str, search_url: str):
+    """
+    Return tuple (present: bool, role: str|None, existing_tag: str|None, existing_url: str|None)
+    by scanning members/watchers/promotables.
+    """
+    roles = [
+        ("members", "Member"),
+        ("watchers", "Watcher"),
+        ("promotables", "Promotable"),
+    ]
+    for attr, role_name in roles:
+        group = getattr(topology, attr, None) or {}
+        for tag, url in group.items():
+            if tag == search_tag or url == search_url:
+                return True, role_name, tag, url
+    return False, None, None, None
+
+
+def add_node(ctx: StoreContext, tag: str, url: str, *, is_watcher: bool, tls: TLSConfig) -> None:
+    """
+    PUT /admin/cluster/node on the leader the ctx is connected to.
+    Raises RuntimeError on HTTP error.
+    """
+    base = ctx.store.urls[0].rstrip("/")
+    endpoint = "{}/admin/cluster/node".format(base)
+
+    params = {"url": url, "tag": tag}
+    if is_watcher:
+        params["watcher"] = "true"
+
+    cert, verify = tls.to_requests_tuple()
+    r = _requests().put(endpoint, params=params, headers={"Content-Type": "application/json"}, cert=cert, verify=verify)
+    if r.status_code not in (200, 201, 204):
+        try:
+            detail = r.json().get("Message", r.text)
+        except Exception:
+            detail = r.text
+        raise RuntimeError(detail)
+
+
+--- END OF plugins/module_utils/services/node_service.py ---
+
+
+### plugins/modules/database.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+DOCUMENTATION = '''
+---
+module: database
+short_description: Manage RavenDB databases
+description:
+  - Create or delete a RavenDB database, and optionally apply per-database settings.
+  - Supports secured connections using client certificates and optional CA verification.
+  - Check mode is supported to simulate creation, deletion, or settings changes without applying them.
+  - Supports creating encrypted databases by assigning a secret key (generated or user-provided) and distributing it to all cluster nodes.
+  - Supports fixed placement by specifying exact cluster node tags to host the database (topology members).
+  - Supports applying per-database settings (C(database_settings)) and triggering a safe database reload so changes take effect.
+version_added: "1.0.0"
+author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
+
+extends_documentation_fragment:
+  - ravendb.ravendb.ravendb
+
+options:
+  replication_factor:
+    description:
+      - Number of server nodes to replicate the database to.
+      - Must be a positive integer.
+      - Only used when creating a database.
+    required: false
+    default: 1
+    type: int
+  topology_members:
+    description:
+      - Optional list of cluster node tags to host this database (fixed placement).
+      - When provided, its length must equal C(replication_factor).
+    required: false
+    type: list
+    elements: str
+  state:
+    description:
+      - Desired state of the database.
+      - If C(present), the database will be created if it does not exist, and settings will be reconciled.
+      - If C(absent), the database will be deleted if it exists.
+      - If omitted (C(null)), the module reconciles settings on an existing database but will not create or delete it.
+      - If the database does not exist and C(state) is omitted, the task fails with guidance to use C(state=present).
+    required: false
+    type: str
+    choices: [present, absent]
+    default: null
+  encrypted:
+    description:
+      - Create the database as encrypted.
+      - When C(true), the module ensures a secret key is assigned (generated or read from file) and distributed to all cluster nodes before creation.
+      - Requires C(certificate_path) to access admin endpoints.
+    required: false
+    default: false
+    type: bool
+  encryption_key:
+    description:
+      - Path to a file that contains the raw encryption key (plain text).
+      - Mutually exclusive with C(generate_encryption_key).
+      - Used only when C(encrypted=true).
+    required: false
+    type: str
+  generate_encryption_key:
+    description:
+      - If C(true), asks the server to generate a new encryption key via the admin API.
+      - Mutually exclusive with C(encryption_key).
+      - Used only when C(encrypted=true).
+    required: false
+    default: false
+    type: bool
+  encryption_key_output_path:
+    description:
+      - When C(generate_encryption_key=true), write the generated key to this local file with safe permissions.
+      - Ignored if C(generate_encryption_key=false).
+    required: false
+    type: str
+  database_settings:
+    description:
+      - Dictionary of database-level settings to apply.
+      - Keys and values are normalized to strings and compared against current customized settings.
+      - When differences exist, the module updates settings and toggles the database state to reload them safely.
+    required: false
+    type: dict
+    default: {}
+
+seealso:
+  - name: RavenDB documentation
+    description: Official RavenDB documentation
+    link: https://ravendb.net/docs
+
+'''
+
+EXAMPLES = '''
+- name: Create a RavenDB database
+  ravendb.ravendb.database:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    replication_factor: 3
+    state: present
+
+- name: Create RF=2 database on specific nodes A and C (fixed placement)
+  ravendb.ravendb.database:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "placed_db"
+    replication_factor: 2
+    topology_members: ["A", "C"]
+    state: present
+
+- name: Create an encrypted database with a generated key and save it locally (requires client cert)
+  become: true
+  ravendb.ravendb.database:
+    url: "https://{{ ansible_host }}:443"
+    database_name: "secure_db"
+    replication_factor: 1
+    certificate_path: "admin.client.combined.pem"
+    ca_cert_path: "ca_certificate.pem"
+    encrypted: true
+    generate_encryption_key: true
+    encryption_key_output_path: "/home/$USER/secure_db.key"
+    state: present
+
+- name: Create an encrypted database using a pre-provisioned key file
+  ravendb.ravendb.database:
+    url: "https://{{ ansible_host }}:443"
+    database_name: "secure_db2"
+    certificate_path: "admin.client.combined.pem"
+    ca_cert_path: "ca_certificate.pem"
+    encrypted: true
+    encryption_key: "/home/$USER/secure_db2.key"
+    state: present
+
+- name: Update database settings (idempotent) – will not create database if absent (state omitted)
+  ravendb.ravendb.database:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    database_settings:
+      Indexing.MapBatchSize: "64"
+
+- name: Apply settings in check mode (no changes will be made)
+  ravendb.ravendb.database:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    database_settings:
+      Indexing.MapBatchSize: "64"
+  check_mode: yes
+
+- name: Delete a RavenDB database
+  ravendb.ravendb.database:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    state: absent
+'''
+
+RETURN = '''
+changed:
+  description: Indicates if any change was made (or would have been made in check mode).
+  type: bool
+  returned: always
+  sample: true
+
+msg:
+  description: Human-readable message describing the result or error.
+  type: str
+  returned: always
+  sample: Database 'my_database' created successfully.
+  version_added: "1.0.0"
+'''
+
+import traceback
+from ansible.module_utils.basic import AnsibleModule, missing_required_lib
+
+LIB_ERR = None
+try:
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.common_args import ravendb_common_argument_spec
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.validation import (
+        validate_url, validate_database_name, validate_replication_factor, validate_paths_exist, validate_state, validate_topology_members, collect_errors
+    )
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.configuration import validate_kv
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import DocumentStoreFactory
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.reconcilers.database_reconciler import DatabaseReconciler
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.database import DatabaseSpec, EncryptionSpec
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.services.encryption_service import validate_encryption_params
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.services import database_service as dbs
+    HAS_LIB = True
+except ImportError:
+    HAS_LIB = False
+    LIB_ERR = traceback.format_exc()
+
+
+def main() -> None:
+    module_args = ravendb_common_argument_spec()
+    module_args.update(
+        replication_factor=dict(type='int', default=1),
+        state=dict(type='str', choices=['present', 'absent'], default=None),
+        encrypted=dict(type='bool', default=False),
+        encryption_key=dict(type='str', required=False, no_log=True),
+        generate_encryption_key=dict(type='bool', default=False),
+        encryption_key_output_path=dict(type='str', required=False, no_log=True),
+        database_settings=dict(type='dict', default={}),
+        topology_members=dict(type='list', elements='str', required=False, default=[]),
+    )
+
+    module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
+
+    if not HAS_LIB:
+        module.fail_json(msg=missing_required_lib("ravendb"), exception=LIB_ERR)
+
+    url = module.params['url']
+    name = module.params['database_name']
+    repl = module.params['replication_factor']
+    cert_path = module.params.get('certificate_path')
+    ca_path = module.params.get('ca_cert_path')
+    state = module.params['state']
+    encrypted = module.params['encrypted']
+    key_path = module.params.get('encryption_key')
+    gen_key = module.params.get('generate_encryption_key')
+    ekey_out_path = module.params.get('encryption_key_output_path')
+    db_settings = module.params.get('database_settings') or {}
+    topology_members = module.params.get('topology_members') or []
+
+    ok, err = collect_errors(
+        validate_url(url),
+        validate_database_name(name),
+        validate_replication_factor(repl),
+        validate_paths_exist(cert_path, ca_path),
+        validate_state(state),
+        validate_topology_members(topology_members, repl)
+    )
+    if not ok:
+        module.fail_json(msg=err)
+
+    tls = TLSConfig(certificate_path=cert_path, ca_cert_path=ca_path)
+    ok, err = validate_encryption_params(state, tls, encrypted, gen_key, key_path, ekey_out_path)
+    if not ok:
+        module.fail_json(msg=err)
+
+    ok, normalized_settings, err = validate_kv(db_settings, "database_settings", allow_none=True)
+    if not ok:
+        module.fail_json(msg=err)
+
+    ctx = None
+    db_name = name if state == "present" else None
+
+    try:
+        ctx = DocumentStoreFactory.create(url, db_name, cert_path, ca_path)
+        reconciler = DatabaseReconciler(ctx)
+
+        spec = DatabaseSpec(
+            url=url,
+            name=name,
+            replication_factor=repl,
+            members=topology_members,
+            settings=normalized_settings or {},
+            encryption=EncryptionSpec(
+                enabled=encrypted,
+                certificate_path=cert_path,
+                ca_cert_path=ca_path,
+                generate_key=gen_key,
+                key_path=key_path,
+                output_path=ekey_out_path,
+            ),
+        )
+
+        if state == "present":
+            res: ModuleResult = reconciler.ensure_present(spec, tls, module.check_mode)
+        elif state == "absent":
+            res: ModuleResult = reconciler.ensure_absent(name, module.check_mode)
+        else:
+            existing = set(dbs.list_databases(ctx))
+            if name not in existing:
+                module.fail_json(msg="Database '{}' does not exist. Provide state=present to create it.".format(name))
+
+            res: ModuleResult = reconciler.ensure_present(spec, tls, module.check_mode)
+
+        if res.failed:
+            module.fail_json(**res.to_ansible())
+        else:
+            module.exit_json(**res.to_ansible())
+
+    except Exception as e:
+        module.fail_json(msg="Unexpected error: {}".format(str(e)))
+    finally:
+        if ctx:
+            ctx.close()
+
+
+if __name__ == '__main__':
+    main()
+
+
+--- END OF plugins/modules/database.py ---
+
+
+### plugins/modules/index.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+DOCUMENTATION = '''
+---
+module: index
+short_description: Manage RavenDB indexes
+description:
+  - Create, delete, update, or apply operational modes to RavenDB indexes.
+  - Supports both single-map and multi-map index definitions (with optional reduce).
+  - Supports check mode to simulate changes without applying them.
+  - Can reconcile per-index configuration via C(index_configuration).
+version_added: "1.0.0"
+author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
+
+extends_documentation_fragment:
+  - ravendb.ravendb.ravendb
+
+options:
+  index_name:
+    description:
+      - Name of the index to create, delete, or modify.
+      - Must consist only of letters, numbers, dashes, and underscores.
+    required: true
+    type: str
+  index_definition:
+    description:
+      - Dictionary defining the index (C(map) list and optional C(reduce) string).
+      - Required when creating a new index.
+      - When present for an existing index, differences are applied idempotently.
+    required: false
+    type: dict
+  state:
+    description:
+      - Desired state of the index.
+      - If C(present), the index will be created if it does not exist, and the definition/configuration will be reconciled.
+      - If C(absent), the index will be deleted if it exists.
+      - If omitted (C(null)), the module operates in "reconcile" mode on existing indexes only (definition, configuration, and/or C(mode)).
+      - If the index does not exist and only C(mode) is provided, the task fails with guidance to use C(state=present).
+    required: false
+    type: str
+    choices: [present, absent]
+    default: null  # CHANGED: explicitly document None-default reconcile behavior
+  mode:
+    description:
+      - Operational mode to apply to an existing index (one of enable/disable/pause/resume/reset).
+      - If the index does not exist and only C(mode) is provided, the task fails with guidance to create it first.
+    required: false
+    type: str
+    choices: [resumed, paused, enabled, disabled, reset]
+  cluster_wide:
+    description:
+      - Whether to apply enable/disable operations cluster-wide.
+    required: false
+    type: bool
+    default: false
+  index_configuration:
+    description:
+      - Per-index configuration key/value pairs to reconcile.
+      - Keys and values are normalized to strings and compared against the current index definition's configuration.
+      - If differences exist, the module updates the definition with the merged configuration.
+    required: false
+    type: dict
+    default: {}  # ADDED
+seealso:
+  - name: RavenDB documentation
+    description: Official RavenDB documentation
+    link: https://ravendb.net/docs
+
+'''
+
+EXAMPLES = '''
+- name: Create a RavenDB index with map and reduce
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "UsersByName"
+    index_definition:
+      map:
+        - "from c in docs.Users select new { c.name, count = 5 }"
+      reduce: >
+        from result in results
+        group result by result.name
+        into g
+        select new
+        {
+          name = g.Key,
+          count = g.Sum(x => x.count)
+        }
+    state: present
+
+- name: Create a RavenDB multi-map index
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "UsersAndOrdersByName"
+    index_definition:
+      map:
+        - "from c in docs.Users select new { Name = c.name, UserCount = 1, OrderCount = 0, TotalCount = 1 }"
+        - "from o in docs.Orders select new { Name = o.customer, UserCount = 0, OrderCount = 1, TotalCount = 1 }"
+      reduce: >
+        from result in results
+        group result by result.Name
+        into g
+        select new
+        {
+          Name = g.Key,
+          UserCount = g.Sum(x => x.UserCount),
+          OrderCount = g.Sum(x => x.OrderCount),
+          TotalCount = g.Sum(x => x.TotalCount)
+        }
+    state: present
+
+- name: Reconcile per-index configuration (idempotent)
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "UsersByName"
+    index_configuration:
+      Indexing.MapBatchSize: "128"
+
+- name: Disable a RavenDB index (cluster-wide)
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "Orders/ByCompany"
+    mode: disabled
+    cluster_wide: true
+
+- name: Pause a RavenDB index (check mode)
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "Orders/ByCompany"
+    mode: paused
+  check_mode: yes
+
+- name: Update an existing RavenDB index definition (idempotent update)
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "UsersByName"
+    index_definition:
+      map:
+        - "from c in docs.Users select new { c.name, count = 13 }"
+      reduce: >
+        from result in results
+        group result by result.name
+        into g
+        select new
+        {
+          name = g.Key,
+          count = g.Sum(x => x.count)
+        }
+    state: present
+
+- name: Delete a RavenDB index
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "UsersByName"
+    state: absent
+
+- name: Create index with rolling deployment
+  ravendb.ravendb.index:
+    url: "http://{{ ansible_host }}:8080"
+    database_name: "my_database"
+    index_name: "Orders/ByCompany"
+    state: present
+    index_definition:
+      map:
+        - "from o in docs.Orders select new { o.Company }"
+      deployment_mode: rolling
+
+'''
+
+RETURN = '''
+changed:
+  description: Indicates if any change was made (or would have been made in check mode).
+  type: bool
+  returned: always
+  sample: true
+
+msg:
+  description: Human-readable message describing the result or error.
+  type: str
+  returned: always
+  sample: Index 'Products_ByName' created successfully.
+  version_added: "1.0.0"
+'''
+
+import traceback
+from ansible.module_utils.basic import AnsibleModule, missing_required_lib
+
+LIB_ERR = None
+try:
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.common_args import ravendb_common_argument_spec
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import DocumentStoreFactory
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.validation import (
+        validate_url, validate_database_name, validate_index_name, validate_dict,
+        validate_paths_exist, validate_state_optional, validate_mode, validate_bool, collect_errors
+    )
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.services import index_service as idxsvc
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.services.index_config_service import validate_index_configuration
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.reconcilers.index_reconciler import IndexReconciler
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.index import IndexSpec, IndexDefinitionSpec
+    HAS_LIB = True
+except ImportError:
+    HAS_LIB = False
+    LIB_ERR = traceback.format_exc()
+
+
+def main():
+    module_args = ravendb_common_argument_spec()
+    module_args.update(
+        index_name=dict(type='str', required=True),
+        index_definition=dict(type='dict', required=False),
+        state=dict(type='str', choices=['present', 'absent'], required=False, default=None),
+        mode=dict(type='str', choices=['resumed', 'paused', 'enabled', 'disabled', 'reset'], required=False),
+        cluster_wide=dict(type='bool', default=False),
+        index_configuration=dict(type='dict', required=False, default={})
+    )
+
+    module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
+
+    if not HAS_LIB:
+        module.fail_json(msg=missing_required_lib("ravendb"), exception=LIB_ERR)
+
+    url = module.params['url']
+    db_name = module.params['database_name']
+    idx_name = module.params['index_name']
+    raw_def = module.params.get('index_definition')
+    cert_path = module.params.get('certificate_path')
+    ca_path = module.params.get('ca_cert_path')
+    state = module.params.get('state')
+    mode = module.params.get('mode')
+    cluster_wide = module.params['cluster_wide']
+    idx_cfg = module.params.get('index_configuration') or {}
+
+    ok, err = collect_errors(
+        validate_url(url),
+        validate_database_name(db_name),
+        validate_index_name(idx_name),
+        validate_dict("index definition", raw_def),
+        validate_paths_exist(cert_path, ca_path),
+        validate_state_optional(state),
+        validate_mode(mode),
+        validate_bool("cluster_wide", cluster_wide),
+    )
+    if not ok:
+        module.fail_json(msg=err)
+
+    ok, normalized_cfg, err = validate_index_configuration(idx_cfg)
+    if not ok:
+        module.fail_json(msg=err)
+
+    def_spec = IndexDefinitionSpec.from_dict(raw_def) if raw_def else None
+    spec = IndexSpec(
+        db_name=db_name,
+        name=idx_name,
+        definition=def_spec,
+        mode=mode,
+        cluster_wide=cluster_wide,
+        configuration=normalized_cfg or {}
+    )
+
+    ctx = None
+    try:
+        ctx = DocumentStoreFactory.create(url, db_name, cert_path, ca_path)
+        reconciler = IndexReconciler(ctx, db_name)
+
+        exists = idxsvc.get_definition(ctx, db_name, idx_name) is not None
+
+        if state == "absent":
+            res = reconciler.ensure_absent(idx_name, module.check_mode)
+        elif state == "present":
+            res = reconciler.ensure_present(spec, module.check_mode)
+        else:
+            if not exists:
+                if mode:
+                    module.fail_json(msg="Index '{}' does not exist. Provide state=present to create it before applying mode.".format(idx_name))
+                module.fail_json(msg="Index '{}' does not exist. Provide state=present and index_definition to create it.".format(idx_name))
+
+            res = reconciler.ensure_present(spec, module.check_mode)
+
+        if res.failed:
+            module.fail_json(**res.to_ansible())
+        else:
+            module.exit_json(**res.to_ansible())
+
+    except Exception as e:
+        module.fail_json(msg="Unexpected error: {}".format(str(e)))
+    finally:
+        if ctx:
+            ctx.close()
+
+
+if __name__ == '__main__':
+    main()
+
+
+--- END OF plugins/modules/index.py ---
+
+
+### plugins/modules/node.py
+
+# -*- coding: utf-8 -*-
+
+# Copyright (c), RavenDB
+# GNU General Public License v3.0 or later (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import absolute_import, division, print_function
+__metaclass__ = type
+
+DOCUMENTATION = '''
+---
+module: node
+short_description: Add a RavenDB node to an existing cluster
+description:
+  - Adds a RavenDB node to a cluster, either as a member or a watcher.
+  - Performs a topology check first and becomes a no-op if the node is already present (by tag or URL).
+  - Supports secured clusters with HTTPS, client certificates (PEM format), and optional CA bundle for verification.
+  - Check mode is supported to simulate the addition without applying changes.
+version_added: "1.0.0"
+author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
+
+attributes:
+  check_mode:
+    support: full
+    description: Can run in check_mode and return changed status prediction without modifying target. If not supported, the action will be skipped.
+
+options:
+  tag:
+    description:
+      - The unique tag for the node (uppercase alphanumeric, 1–4 chars).
+    required: true
+    type: str
+  type:
+    description:
+      - Node type. Use C(Watcher) to add the node as a watcher instead of a full member.
+    required: false
+    type: str
+    default: Member
+    choices: [Member, Watcher]
+  url:
+    description:
+      - The HTTP/HTTPS URL of the node being added.
+    required: true
+    type: str
+  leader_url:
+    description:
+      - The HTTP/HTTPS URL of the cluster leader the module will contact to add the node.
+    required: true
+    type: str
+  certificate_path:
+    description:
+      - Path to a client certificate in PEM format (combined certificate and key).
+      - Required for secured clusters (HTTPS with client authentication).
+    required: false
+    type: str
+  ca_cert_path:
+    description:
+      - Path to a CA certificate bundle to verify the server certificate.
+    required: false
+    type: str
+
+seealso:
+  - name: RavenDB documentation
+    description: Official RavenDB documentation
+    link: https://ravendb.net/docs
+
+'''
+
+EXAMPLES = '''
+- name: Join Node B as a Watcher (HTTP, no cert)
+  ravendb.ravendb.node:
+    tag: B
+    type: "Watcher"
+    url: "http://192.168.118.120:8080"
+    leader_url: "http://192.168.117.90:8080"
+
+- name: Join Node B as Watcher (HTTPS)
+  ravendb.ravendb.node:
+    tag: B
+    type: "Watcher"
+    url: "https://b.ravendbansible.development.run"
+    leader_url: "https://a.ravendbansible.development.run"
+    certificate_path: admin.client.combined.pem
+    ca_cert_path: ca_certificate.pem
+
+- name: Simulate adding Node D (check mode)
+  ravendb.ravendb.node:
+    tag: D
+    url: "http://192.168.118.200:8080"
+    leader_url: "http://192.168.117.90:8080"
+  check_mode: yes
+'''
+
+RETURN = '''
+changed:
+  description: Indicates if the cluster topology was changed or would have changed (check mode).
+  type: bool
+  returned: always
+  sample: true
+
+msg:
+  description: Human-readable message describing the result or error.
+  type: str
+  returned: always
+  sample: Node 'B' added as Member.
+  version_added: "1.0.0"
+'''
+
+import traceback
+from ansible.module_utils.basic import AnsibleModule, missing_required_lib
+
+LIB_ERR = None
+try:
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import DocumentStoreFactory
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.validation import (
+        validate_url, validate_tag, validate_paths_exist, collect_errors
+    )
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.node import NodeSpec
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.reconcilers.node_reconciler import NodeReconciler
+    HAS_LIB = True
+except ImportError:
+    HAS_LIB = False
+    LIB_ERR = traceback.format_exc()
+
+
+def main():
+    module_args = dict(
+        tag=dict(type='str', required=True),
+        type=dict(type='str', required=False, default='Member', choices=['Member', 'Watcher']),
+        url=dict(type='str', required=True),
+        leader_url=dict(type='str', required=True),
+        certificate_path=dict(type='str', required=False, default=None),
+        ca_cert_path=dict(type='str', required=False, default=None),
+    )
+
+    module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
+
+    if not HAS_LIB:
+        module.fail_json(msg=missing_required_lib("ravendb"), exception=LIB_ERR)
+
+    tag = module.params['tag']
+    node_type = module.params['type']
+    node_url = module.params['url']
+    leader_url = module.params['leader_url']
+    cert_path = module.params.get('certificate_path')
+    ca_path = module.params.get('ca_cert_path')
+
+    ok, err = collect_errors(
+        validate_tag(tag),
+        validate_url(node_url),
+        validate_url(leader_url),
+        validate_paths_exist(cert_path, ca_path),
+    )
+    if not ok:
+        module.fail_json(msg=err)
+
+    tls = TLSConfig(certificate_path=cert_path, ca_cert_path=ca_path)
+    ctx = None
+    try:
+        ctx = DocumentStoreFactory.create(leader_url, None, cert_path, ca_path)
+
+        spec = NodeSpec(
+            tag=tag,
+            url=node_url,
+            leader_url=leader_url,
+            node_type=node_type,
+        )
+
+        reconciler = NodeReconciler(ctx)
+        res: ModuleResult = reconciler.ensure_present(spec, tls, module.check_mode)
+
+        if res.failed:
+            module.fail_json(**res.to_ansible())
+        else:
+            module.exit_json(**res.to_ansible())
+
+    except Exception as e:
+        module.fail_json(msg="Unexpected error: {}".format(str(e)))
+    finally:
+        if ctx:
+            ctx.close()
+
+
+if __name__ == '__main__':
+    main()
+
+
+--- END OF plugins/modules/node.py ---
+
+

@@ -7,6 +7,9 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
+import os
+import errno
+
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services.cluster_service import fetch_topology, collect_tags
@@ -20,7 +23,7 @@ def _requests():
         raise RuntimeError("Python 'requests' is required for encryption operations. Install 'requests'.")
 
 
-def fetch_generated_key(ctx: StoreContext, tls: TLSConfig) -> str:
+def fetch_generated_key(ctx, tls):
     """
     Ask the server to generate an encryption key.
     """
@@ -33,13 +36,16 @@ def fetch_generated_key(ctx: StoreContext, tls: TLSConfig) -> str:
     return response.text.strip()
 
 
-def write_key_safe(path: str, key: str) -> None:
+def write_key_safe(path, key):
     """
     Write the key to 'path'.
     """
-    import os
     directory = os.path.dirname(path) or "."
-    os.makedirs(directory, exist_ok=True)
+    try:
+        os.makedirs(directory)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
     prev_umask = os.umask(0o177)
     try:
         with open(path, "w") as f:
@@ -48,7 +54,7 @@ def write_key_safe(path: str, key: str) -> None:
         os.umask(prev_umask)
 
 
-def read_key(path: str) -> str:
+def read_key(path):
     """
     Read entire file and strip trailing whitespace/newlines.
     """
@@ -56,7 +62,7 @@ def read_key(path: str) -> str:
         return f.read().strip()
 
 
-def distribute_key(ctx: StoreContext, db_name: str, key: str, tls: TLSConfig, only_tags: list = None) -> list:
+def distribute_key(ctx, db_name, key, tls, only_tags=None):
     """
     Distribute the encryption key to ALL nodes in the cluster.
     If only_tags is None/empty, distribute to all nodes in the cluster.
@@ -84,8 +90,8 @@ def distribute_key(ctx: StoreContext, db_name: str, key: str, tls: TLSConfig, on
     return tags
 
 
-def validate_encryption_params(desired_state: str, tls: TLSConfig, encrypted: bool,
-                               generate_key: bool, key_path: str = None, output_path: str = None) -> tuple:
+def validate_encryption_params(desired_state, tls, encrypted,
+                               generate_key, key_path=None, output_path=None):
     """
     Validate parameters when creating an encrypted database.
     """

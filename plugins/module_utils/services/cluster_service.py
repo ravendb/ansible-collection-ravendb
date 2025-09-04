@@ -11,16 +11,16 @@ from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TL
 
 
 class ClusterTopology:
-    def __init__(self, members: dict, watchers: dict, promotables: dict):
+    def __init__(self, members, watchers, promotables):
         self.members = members
         self.watchers = watchers
         self.promotables = promotables
 
 
-def fetch_topology_http(leader_url: str, tls: TLSConfig, timeout: int = 10):
+def fetch_topology_http(leader_url, tls, timeout=10):
     import requests
     cert, verify = tls.to_requests_tuple()
-    endpoint = f"{leader_url.rstrip('/')}/cluster/topology"
+    endpoint = leader_url.rstrip('/') + "/cluster/topology"
 
     r = requests.get(endpoint, cert=cert, verify=verify, timeout=timeout)
     r.raise_for_status()
@@ -29,7 +29,7 @@ def fetch_topology_http(leader_url: str, tls: TLSConfig, timeout: int = 10):
 
     def _to_map(g):
         if isinstance(g, dict):
-            return {str(k): ("" if v is None else str(v)) for k, v in g.items()}
+            return dict((str(k), ("" if v is None else str(v))) for k, v in g.items())
         return {}
 
     members = _to_map(topo.get("Members") or topo.get("members"))
@@ -39,7 +39,7 @@ def fetch_topology_http(leader_url: str, tls: TLSConfig, timeout: int = 10):
     return ClusterTopology(members, watchers, promotables)
 
 
-def fetch_topology(ctx: StoreContext):
+def fetch_topology(ctx):
     """
     Fetch cluster topology using RavenDB Python Client.
     Returns ClusterTopology.
@@ -50,7 +50,7 @@ def fetch_topology(ctx: StoreContext):
     return cmd.result.topology
 
 
-def collect_tags(topology) -> list:
+def collect_tags(topology):
     all_nodes = getattr(topology, "all_nodes", None) or {}
     if all_nodes:
         return sorted(all_nodes.keys())

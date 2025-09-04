@@ -18,10 +18,10 @@ from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TL
 
 
 class DatabaseReconciler:
-    def __init__(self, ctx: StoreContext) -> None:
+    def __init__(self, ctx):
         self.ctx = ctx
 
-    def ensure_present(self, spec: DatabaseSpec, tls: TLSConfig, check_mode: bool) -> ModuleResult:
+    def ensure_present(self, spec, tls, check_mode):
         """
         Ensure the specified database exists.
         Returns: ModuleResult: contains `changed` (bool) and `msg` (str).
@@ -104,7 +104,7 @@ class DatabaseReconciler:
             return ModuleResult.ok(msg=base_msg, changed=True)
         return ModuleResult.ok(msg=msg.db_no_changes(base_msg), changed=False)
 
-    def ensure_absent(self, name: str, check_mode: bool) -> ModuleResult:
+    def ensure_absent(self, name, check_mode):
         """
         Ensure the specified database is absent.
         Returns: ModuleResult: contains `changed` (bool) and `msg` (str).

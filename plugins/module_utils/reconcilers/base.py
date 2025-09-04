@@ -6,9 +6,7 @@
 
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
-from dataclasses import dataclass
 
-
-@dataclass
-class ReconcilerContext:
-    check_mode: bool = False
+class ReconcilerContext(object):
+    def __init__(self, check_mode=False):
+        self.check_mode = bool(check_mode)

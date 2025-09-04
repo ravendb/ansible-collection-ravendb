@@ -9,9 +9,16 @@ __metaclass__ = type
 
 
 class IndexDefinitionSpec(object):
-    def __init__(self, map=None, reduce=None, deployment_mode=None):
-        self.map = list(map or [])
-        self.reduce = reduce
+    def __init__(self, maps=None, reduce=None, deployment_mode=None):
+        if maps is None:
+            maps = []
+        elif isinstance(maps, str):
+            maps = [maps]
+        else:
+            maps = list(maps)
+
+        self.maps = maps
+        self.reduce = None if reduce == "" else reduce
         self.deployment_mode = deployment_mode
 
     @classmethod
@@ -26,12 +33,12 @@ class IndexDefinitionSpec(object):
             dm_norm = None
         else:
             dm_norm = str(dm_raw).strip().lower()
-        return cls(map=maps, reduce=d.get("reduce"), deployment_mode=dm_norm)
+        return cls(maps=maps, reduce=d.get("reduce"), deployment_mode=dm_norm)
 
     def to_dict(self):
         out = {}
-        if self.map:
-            out["map"] = list(self.map)
+        if self.maps:
+            out["map"] = list(self.maps)
         if self.reduce:
             out["reduce"] = self.reduce
         if self.deployment_mode:

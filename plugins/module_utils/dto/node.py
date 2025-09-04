@@ -7,16 +7,14 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
-from dataclasses import dataclass
 
-
-@dataclass
-class NodeSpec:
-    tag: str
-    url: str
-    leader_url: str
-    node_type: str = "Member"
+class NodeSpec(object):
+    def __init__(self, tag, url, leader_url, node_type="Member"):
+        self.tag = tag
+        self.url = url
+        self.leader_url = leader_url
+        self.node_type = node_type
 
     @property
-    def is_watcher(self) -> bool:
+    def is_watcher(self):
         return self.node_type == "Watcher"

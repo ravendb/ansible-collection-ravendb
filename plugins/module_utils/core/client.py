@@ -7,17 +7,12 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
 from .deps import require_ravendb
 
-if TYPE_CHECKING:
-    from ravendb import DocumentStore
 
-
-@dataclass
-class StoreContext:
-    store: "DocumentStore"
+class StoreContext(object):
+    def __init__(self, store):
+        self.store = store
 
     def maintenance_server(self):
         return self.store.maintenance.server
@@ -28,11 +23,11 @@ class StoreContext:
     def close(self):
         try:
             self.store.close()
-        except Exception as e:
-            raise e
+        except Exception:
+            raise
 
 
-class DocumentStoreFactory:
+class DocumentStoreFactory(object):
     @staticmethod
     def create(url, database=None, certificate_path=None, ca_cert_path=None):
         require_ravendb()
