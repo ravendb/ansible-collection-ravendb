@@ -1,6 +1,6 @@
 ---
 - name: Form Cluster
-  hosts: ravendb_nodes
+  hosts: localhost
   gather_facts: no
   
   tasks:

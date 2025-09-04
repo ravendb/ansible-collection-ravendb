@@ -31,13 +31,11 @@
   register: venv_integrity
 
 - name: Recreate virtual environment if it is incomplete
-  become: true
   ansible.builtin.command:
     cmd: rm -rf "{{ ravendb_venv_path }}"
   when: not venv_integrity.stat.exists
 
 - name: Create a virtual environment for Python
-  become: true
   ansible.builtin.command:
     cmd: python3 -m venv "{{ ravendb_venv_path }}"
     creates: "{{ ravendb_venv_path }}/bin/python"
@@ -47,17 +45,14 @@
     ansible_python_interpreter: "{{ ravendb_venv_path }}/bin/python"
 
 - name: Install pip explicitly after ensurepip
-  become: true
   ansible.builtin.command:
     cmd: "{{ ravendb_venv_path }}/bin/python -m ensurepip --default-pip"
 
 - name: Upgrade pip in the virtual environment
-  become: true
   ansible.builtin.command:
     cmd: "{{ ravendb_venv_path }}/bin/python -m pip install --upgrade pip"
 
 - name: Check Python version and pip location in virtual environment
-  become: true
   ansible.builtin.command:
     cmd: "{{ ravendb_venv_path }}/bin/python -m pip --version"
   changed_when: false
@@ -69,10 +64,10 @@
   changed_when: false
 
 - name: Install RavenDB Python client in virtual environment
-  become: true
-  ansible.builtin.command:
-    cmd: "{{ ravendb_venv_path }}/bin/pip install ravendb"
-  when: ravendb_installed.rc == 1
+  ansible.builtin.pip:
+    name: ravendb
+    virtualenv: "{{ ravendb_venv_path }}"
+    virtualenv_command: python3 -m venv
 
 - name: Check if requests is installed in virtual environment
   command: "{{ ravendb_venv_path }}/bin/pip show requests"
@@ -81,7 +76,6 @@
   changed_when: false
 
 - name: Install requests in virtual environment
-  become: true
   ansible.builtin.command:
     cmd: "{{ ravendb_venv_path }}/bin/pip install requests"
   when: requests_installed.rc == 1

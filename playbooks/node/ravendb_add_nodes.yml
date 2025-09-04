@@ -3,6 +3,8 @@
   hosts: localhost
   gather_facts: no
   
+  roles:
+    - ravendb.ravendb.ravendb_python_client_prerequisites
 
   tasks:
     - name: Join Node B as Watcher (check_mode)
