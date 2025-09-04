@@ -163,6 +163,10 @@ jobs:
           ansible-galaxy collection build .
           ansible-galaxy collection install ./ravendb-ravendb-*.tar.gz --force -p ./
 
+      - name: Run modules scenarios
+        working-directory: roles/ravendb_node
+        run: molecule test -s plugins_all_unsecured
+
       - name: Set up .NET environment variables
         run: |
           export DOTNET_ROOT=$HOME/.dotnet
