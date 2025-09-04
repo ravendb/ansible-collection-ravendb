@@ -116,7 +116,6 @@ try:
         validate_url, validate_tag, validate_paths_exist, collect_errors
     )
     from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
-    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
     from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.node import NodeSpec
     from ansible_collections.ravendb.ravendb.plugins.module_utils.reconcilers.node_reconciler import NodeReconciler
     HAS_LIB = True
