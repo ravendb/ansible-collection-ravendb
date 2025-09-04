@@ -1,0 +1,30 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  vars:
+    ravendb_venv_path: "/root/.ravendb_ansible"
+
+  tasks:
+    - name: Install RavenDB Python client prerequisites
+      include_role:
+        name: ravendb.ravendb.ravendb_python_client_prerequisites
+
+    - name: Point Ansible at venv interpreter
+      set_fact:
+        ansible_python_interpreter: "{{ ravendb_venv_path }}/bin/python"
+
+    - name: Reset SSH connection to pick up interpreter
+      ansible.builtin.meta: reset_connection
+
+    - name: Include common init
+      import_tasks: tasks/init.yml
+      tags: [always]
+
+    - name: Database suite
+      import_tasks: tasks/db.yml
+      tags: [db]
+
+    - name: Index suite
+      import_tasks: tasks/index.yml
+      tags: [index]

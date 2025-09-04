@@ -1,0 +1,36 @@
+---
+- name: Unsecured
+  hosts: all
+  tasks: 
+    - name: "Include ravendb_node"
+      include_role:
+        name: ravendb.ravendb.ravendb_node
+      vars:
+        ravendb_state: present
+        ravendb_version: latest
+        ravendb_version_minor: 6.2
+        ravendb_release_channel: stable
+        ravendb_arch: linux-x64
+        ravendb_settings_preset: default
+
+    - name: Ensure service is actually up
+      become: true
+      ansible.builtin.systemd:
+        name: ravendb.service
+        state: started
+      register: _svc
+
+    - name: Assert service active
+      ansible.builtin.assert:
+        that:
+          - _svc.status.ActiveState == 'active'
+
+    - name: Wait for RavenDB to be responsive
+      ansible.builtin.uri:
+        url: http://localhost:8080/studio/index.html
+        status_code: 200
+        validate_certs: no
+      register: _probe
+      retries: 60
+      delay: 2
+      until: _probe.status == 200
