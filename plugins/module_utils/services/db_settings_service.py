@@ -8,7 +8,6 @@ from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.configuration import validate_kv, diff_kv
-from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
 
 
 def validate_database_settings(d):

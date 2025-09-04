@@ -6,8 +6,6 @@
 
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
-from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
-from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
 
 
 class ClusterTopology:

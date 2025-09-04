@@ -40,6 +40,7 @@ options:
     required: false
     type: list
     elements: str
+    default: []
   state:
     description:
       - Desired state of the database.
@@ -184,7 +185,6 @@ try:
     from ansible_collections.ravendb.ravendb.plugins.module_utils.core.configuration import validate_kv
     from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import DocumentStoreFactory
     from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
-    from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
     from ansible_collections.ravendb.ravendb.plugins.module_utils.reconcilers.database_reconciler import DatabaseReconciler
     from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.database import DatabaseSpec, EncryptionSpec
     from ansible_collections.ravendb.ravendb.plugins.module_utils.services.encryption_service import validate_encryption_params

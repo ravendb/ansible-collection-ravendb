@@ -7,8 +7,6 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
-from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
-from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core import messages as msg
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services.cluster_service import fetch_topology_http

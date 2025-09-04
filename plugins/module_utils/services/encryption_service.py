@@ -9,9 +9,6 @@ __metaclass__ = type
 
 import os
 import errno
-
-from ansible_collections.ravendb.ravendb.plugins.module_utils.core.tls import TLSConfig
-from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import StoreContext
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services.cluster_service import fetch_topology, collect_tags
 
 

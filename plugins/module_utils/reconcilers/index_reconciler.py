@@ -12,7 +12,6 @@ from ansible_collections.ravendb.ravendb.plugins.module_utils.core import messag
 from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.index import IndexDefinitionSpec
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services import index_service as idxsvc
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services import index_config_service as cfgsvc
-from ansible_collections.ravendb.ravendb.plugins.module_utils.dto.index import IndexSpec
 
 
 class IndexReconciler(object):
