@@ -165,7 +165,12 @@ jobs:
 
       - name: Run modules scenarios
         working-directory: roles/ravendb_node
-        run: molecule test -s plugins_all_unsecured
+        run: molecule test -s plugins-unsecured
+
+      # todo: enable once we put a license file in the repo
+      # - name: Run modules scenarios nodes
+      #   working-directory: roles/ravendb_node
+      #   run: molecule test -s plugins-unsecured-nodes
 
       - name: Set up .NET environment variables
         run: |

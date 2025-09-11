@@ -50,3 +50,6 @@
     db_missing: "db_missing_{{ 1000000 | random }}"
     db_ix: "db_ix_{{ 1000000 | random }}"
     idx_name: "UsersByName{{ 1000000 | random }}"
+    db_missing_rf: "db_missing_rf"
+    db_mismatch_rf_members: "db_mismatch_rf_members"
+    db_invalid_rf: "db_invalid_rf"

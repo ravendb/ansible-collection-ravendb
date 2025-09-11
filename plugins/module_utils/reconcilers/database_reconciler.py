@@ -26,22 +26,29 @@ class DatabaseReconciler:
         existing_databases = dbs.list_databases(self.ctx)
         created = False
 
-        if spec.members:
-            wanted = list(dict.fromkeys(spec.members))
-            if len(wanted) != spec.replication_factor:
-                return ModuleResult.error(msg="topology_members length ({}) must equal replication_factor ({}).".format(len(wanted), spec.replication_factor))
-            try:
-                cluster_tags = set(collect_tags(fetch_topology(self.ctx)))
-            except Exception as e:
-                return ModuleResult.error(msg="Failed to fetch cluster topology: {}".format(str(e)))
-
-            missing = [t for t in wanted if t not in cluster_tags]
-            if missing:
-                return ModuleResult.error(msg="Unknown node tags in topology_members: {}".format(", ".join(missing)))
-
-            spec.members = wanted
-
         if spec.name not in existing_databases:
+            if spec.replication_factor is None:
+                return ModuleResult.error(msg=msg.rf_required_on_create())
+
+            if spec.members:
+                wanted = list(dict.fromkeys(spec.members))
+                if len(wanted) != spec.replication_factor:
+                    return ModuleResult.error(
+                        msg="topology_members length ({}) must equal replication_factor ({}).".format(
+                            len(wanted), spec.replication_factor
+                        )
+                    )
+                try:
+                    cluster_tags = set(collect_tags(fetch_topology(self.ctx)))
+                except Exception as e:
+                    return ModuleResult.error(msg="Failed to fetch cluster topology: {}".format(str(e)))
+
+                missing = [t for t in wanted if t not in cluster_tags]
+                if missing:
+                    return ModuleResult.error(msg="Unknown node tags in topology_members: {}".format(", ".join(missing)))
+
+                spec.members = wanted
+
             if spec.encryption.enabled:
                 if check_mode:
                     return ModuleResult.ok(msg=msg.db_would_create(spec.name, encrypted=True), changed=True)
@@ -68,25 +75,9 @@ class DatabaseReconciler:
                 # toggling between encrypted db and regular db is forbidden
                 return ModuleResult.error(msg=msg.encryption_mismatch(spec.name, actual_flag, spec.encryption.enabled))
             base_msg = msg.db_exists(spec.name)
+
             if spec.members:
-                try:
-                    changed_m, to_add, to_remove = dbs.reconcile_membership(
-                        self.ctx,
-                        spec.name,
-                        record,
-                        spec.members,
-                        encrypted=actual_flag,
-                        enc_key_path=spec.encryption.key_path,
-                        tls=tls,
-                        check_mode=check_mode,
-                    )
-                except Exception as e:
-                    return ModuleResult.error(msg=str(e))
-                if changed_m:
-                    if check_mode:
-                        return ModuleResult.ok(msg=msg.members_would_reconcile(spec.name, to_add, to_remove), changed=True)
-                    base_msg = msg.members_reconciled(spec.name, to_add, to_remove)
-                    created = True
+                return ModuleResult.error(msg="topology_members is only supported on database creation; modifying an existing database topology is blocked.")
 
         if spec.settings:
             current = setsvc.get_current(self.ctx, spec.name)

@@ -40,6 +40,10 @@ def db_no_changes(base):
     return "{} No changes.".format(base)
 
 
+def rf_required_on_create():
+    return "replication_factor is required when creating a database."
+
+
 def settings_applied(prefix, keys):
     ks = ", ".join(sorted(keys)) if not isinstance(keys, str) else keys
     return "{} Applied settings ({}) and reloaded.".format(prefix, ks)
@@ -176,27 +180,3 @@ def node_added(tag, node_type):
 
 def failed_add_node(tag, error):
     return "Failed to add node '{}': {}".format(tag, error)
-
-
-def _fmt_tags(tags):
-    return ", ".join(tags) if tags else ""
-
-
-def members_would_reconcile(db, to_add, to_remove):
-    if to_add and to_remove:
-        return "Database '{}' would reconcile members: add [{}]; remove [{}].".format(db, _fmt_tags(to_add), _fmt_tags(to_remove))
-    if to_add:
-        return "Database '{}' would add members: [{}].".format(db, _fmt_tags(to_add))
-    if to_remove:
-        return "Database '{}' would remove members: [{}].".format(db, _fmt_tags(to_remove))
-    return "Database '{}' membership already matches.".format(db)
-
-
-def members_reconciled(db, to_add, to_remove):
-    if to_add and to_remove:
-        return "Database '{}' reconciled members: added [{}]; removed [{}].".format(db, _fmt_tags(to_add), _fmt_tags(to_remove))
-    if to_add:
-        return "Database '{}' added members: [{}].".format(db, _fmt_tags(to_add))
-    if to_remove:
-        return "Database '{}' removed members: [{}].".format(db, _fmt_tags(to_remove))
-    return "Database '{}' membership already matched.".format(db)

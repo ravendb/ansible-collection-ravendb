@@ -25,7 +25,7 @@ class EncryptionSpec(object):
 
 
 class DatabaseSpec(object):
-    def __init__(self, url, name, replication_factor=1, settings=None, encryption=None, members=None):
+    def __init__(self, url, name, replication_factor=None, settings=None, encryption=None, members=None):
         if settings is None:
             settings = {}
         if encryption is None:

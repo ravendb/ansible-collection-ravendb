@@ -67,13 +67,20 @@ def validate_replication_factor(factor):
     return True, None
 
 
+def validate_replication_factor_optional(factor):
+    """Accepts None or a positive integer."""
+    if factor is None:
+        return True, None
+    return validate_replication_factor(factor)
+
+
 def validate_topology_members(members, replication_factor):
     """Validate that topology_members is a list of tags with length == replication_factor."""
     if not members:
         return True, None
     if not isinstance(members, list) or not all(isinstance(m, str) for m in members):
         return False, "topology_members must be a list of strings."
-    if len(members) != replication_factor:
+    if replication_factor is not None and len(members) != replication_factor:
         return False, "topology_members length ({}) must equal replication_factor ({}).".format(len(members), replication_factor)
     return True, None
 

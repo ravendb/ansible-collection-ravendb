@@ -52,7 +52,6 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
 
 ### Added
 - Database placement on specific nodes via `topology_members` in `ravendb.ravendb.database`.
-- Database topology reconciliation: add/remove nodes from a database's topology.
 - Index deployment mode support (`rolling`, `parallel`) in `ravendb.ravendb.index`.
 - Per-index configuration reconciliation via `index_configuration` in `ravendb.ravendb.index`.
 
