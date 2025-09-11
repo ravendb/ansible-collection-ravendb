@@ -21,7 +21,7 @@ provisioner:
   name: ansible
   log: true
 scenario:
-  name: plugins_all_unsecured
+  name: plugins-unsecured
   test_sequence:
     - destroy
     - create

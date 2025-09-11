@@ -30,13 +30,15 @@ options:
       - Number of server nodes to replicate the database to.
       - Must be a positive integer.
       - Only used when creating a database.
+      - Required on creation; ignored for existing databases.
     required: false
-    default: 1
+    default: null
     type: int
   topology_members:
     description:
       - Optional list of cluster node tags to host this database (fixed placement).
       - When provided, its length must equal C(replication_factor).
+      - Honored only on creation. If the database already exists, providing C(topology_members) will fail.
     required: false
     type: list
     elements: str
@@ -130,6 +132,7 @@ EXAMPLES = '''
   ravendb.ravendb.database:
     url: "https://{{ ansible_host }}:443"
     database_name: "secure_db2"
+    replication_factor: 1
     certificate_path: "admin.client.combined.pem"
     ca_cert_path: "ca_certificate.pem"
     encrypted: true
@@ -180,7 +183,8 @@ LIB_ERR = None
 try:
     from ansible_collections.ravendb.ravendb.plugins.module_utils.common_args import ravendb_common_argument_spec
     from ansible_collections.ravendb.ravendb.plugins.module_utils.core.validation import (
-        validate_url, validate_database_name, validate_replication_factor, validate_paths_exist, validate_state, validate_topology_members, collect_errors
+        validate_url, validate_database_name, validate_replication_factor_optional, validate_paths_exist,
+        validate_state_optional, validate_topology_members, collect_errors
     )
     from ansible_collections.ravendb.ravendb.plugins.module_utils.core.configuration import validate_kv
     from ansible_collections.ravendb.ravendb.plugins.module_utils.core.client import DocumentStoreFactory
@@ -198,7 +202,7 @@ except ImportError:
 def main():
     module_args = ravendb_common_argument_spec()
     module_args.update(
-        replication_factor=dict(type='int', default=1),
+        replication_factor=dict(type='int', default=None),
         state=dict(type='str', choices=['present', 'absent'], default=None),
         encrypted=dict(type='bool', default=False),
         encryption_key=dict(type='str', required=False, no_log=True),
@@ -229,9 +233,9 @@ def main():
     ok, err = collect_errors(
         validate_url(url),
         validate_database_name(name),
-        validate_replication_factor(repl),
+        validate_replication_factor_optional(repl),
         validate_paths_exist(cert_path, ca_path),
-        validate_state(state),
+        validate_state_optional(state),
         validate_topology_members(topology_members, repl)
     )
     if not ok:

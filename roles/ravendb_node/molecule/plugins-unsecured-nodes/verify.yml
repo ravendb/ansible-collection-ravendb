@@ -1,0 +1,16 @@
+---
+- name: Verify
+  hosts: localhost
+  gather_facts: false
+  # vars:
+  #   ravendb_venv_path: "/root/.ravendb_ansible"
+
+  tasks:
+    - import_tasks: tasks/init.yml
+      tags: [always]
+
+    - import_tasks: tasks/node.yml
+      tags: [node]
+  
+    - import_tasks: tasks/db_affinity.yml
+      tags: [db_affinity]
