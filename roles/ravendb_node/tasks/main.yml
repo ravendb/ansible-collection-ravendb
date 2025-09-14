@@ -4,9 +4,11 @@
   include_tasks: redhat.yml
   when: ansible_facts['os_family'] | lower == 'redhat' and ravendb_state | default("present") == "present"
 
-- name: Install prerequisites for Debian
+- name: Debian-family path (Ubuntu -> DEB, others -> tarball)
   include_tasks: debian.yml
-  when: ansible_facts['os_family'] | lower == 'debian' and ravendb_state | default("present") == "present"
+  when:
+    - ansible_facts['os_family'] | lower == 'debian'
+    - ravendb_state | default("present") == "present"
 
 - name: Install RavenDB
   include_tasks: install.yml
