@@ -11,9 +11,15 @@
     - openssl
     - ca-certificates 
 
-- name: Determine Ubuntu version and architecture
+- name: Install ICU for tarball path [Debian non-Ubuntu]
+  become: true
+  ansible.builtin.apt:
+    name: libicu-dev
+    state: present
+  when: ansible_facts['distribution'] != 'Ubuntu'
+
+- name: Determine architecture
   set_fact:
-    ubuntu_version: "{{ ansible_facts['lsb']['release'] }}"
     arch: "{{ ansible_facts['architecture'] }}"
 
 - name: Fail if architecture is unsupported
@@ -21,11 +27,16 @@
     msg: "Unsupported architecture: {{ arch }}"
   when: arch not in ['x86_64', 'aarch64']
 
+- name: Determine Ubuntu version (Ubuntu only)
+  set_fact:
+    ubuntu_version: "{{ ansible_facts['distribution_version'] }}"
+  when: ansible_facts['distribution'] == 'Ubuntu'
+
 - name: Message
   debug:
-    msg: "Downloading RavenDB {{ ravendb_version }}..."
-       
-- block:
+    msg: "Downloading RavenDB {{ ravendb_version }} via {{ 'deb' if ansible_facts['distribution']=='Ubuntu' else 'tarball' }}..."
+
+- block: # deb/ubuntu
   - name: Determine download url for latest version
     set_fact:
       ravendb_download_url: >-
@@ -46,4 +57,9 @@
     ansible.builtin.get_url:
         url: "{{ ravendb_download_url }}"
         dest: /tmp/ravendb.deb
+  when: ansible_facts['distribution'] == 'Ubuntu'
+  tags: download
+
+- import_tasks: download_tarball.yml
+  when: ansible_facts['distribution'] != 'Ubuntu'
   tags: download

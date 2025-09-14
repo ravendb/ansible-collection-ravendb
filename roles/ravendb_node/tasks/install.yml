@@ -91,6 +91,7 @@
     deb: /tmp/ravendb.deb
   when:
     - ansible_facts['os_family'] | lower == 'debian'
+    - ansible_facts['distribution'] == 'Ubuntu'
     - ravendb_binary.stat.exists == false or ravendb_should_update_binaries | bool
 
 - block:
@@ -110,7 +111,7 @@
                   and (ravendb_existing_version_result | default({})).get('stdout', '') != ravendb_version) }}
       tags: binaries
 
-    - name: Unpack RavenDB server binaries (RHEL/CentOS)
+    - name: Unpack RavenDB server binaries (tarball path)
       become: true
       ansible.builtin.unarchive:
         remote_src: yes
@@ -119,7 +120,10 @@
         extra_opts:
           - --transform
           - s/^RavenDB\/Server//
-      when: ansible_facts['os_family'] | lower == 'redhat'
+      when: >
+        (ansible_facts['os_family'] | lower == 'redhat')
+        or (ansible_facts['os_family'] | lower == 'debian'
+            and ansible_facts['distribution'] != 'Ubuntu')
 
 - name: Determine settings.json template
   set_fact:
