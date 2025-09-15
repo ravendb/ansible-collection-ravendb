@@ -126,9 +126,17 @@ jobs:
         working-directory: roles/ravendb_node
         run: molecule test -s unsecured
  
-      - name: Run Debian non-Ubuntu unsecured scenario
+      - name: Run Debian-11 unsecured scenario
         working-directory: roles/ravendb_node
-        run: molecule test -s unsecured-nonubuntu-debian
+        run: molecule test -s debian-11
+
+      - name: Run Debian-12 unsecured scenario
+        working-directory: roles/ravendb_node
+        run: molecule test -s debian-12
+
+      - name: Run Debian-13 unsecured scenario
+        working-directory: roles/ravendb_node
+        run: molecule test -s debian-13
 
       - name: Run Debian update scenario
         working-directory: roles/ravendb_node
