@@ -11,9 +11,8 @@
     - openssl
     - ca-certificates 
 
-- name: Determine Ubuntu version and architecture
+- name: Determine architecture
   set_fact:
-    ubuntu_version: "{{ ansible_facts['lsb']['release'] }}"
     arch: "{{ ansible_facts['architecture'] }}"
 
 - name: Fail if architecture is unsupported
@@ -21,10 +20,54 @@
     msg: "Unsupported architecture: {{ arch }}"
   when: arch not in ['x86_64', 'aarch64']
 
+- name: Define Debian -> Ubuntu LTS + ICU map and arch
+  set_fact:
+    deb_arch: "{{ 'amd64' if arch == 'x86_64' else 'arm64' }}"
+    debian_icu_map:
+      '11': { 'ubuntu': '20.04', 'icu_pkg': 'libicu66', 'icu_ver': '66.1-2ubuntu2.1' }
+      '12': { 'ubuntu': '22.04', 'icu_pkg': 'libicu70', 'icu_ver': '70.1-2ubuntu1' }
+      '13': { 'ubuntu': '24.04', 'icu_pkg': 'libicu74', 'icu_ver': '74.2-1ubuntu3.1' }
+    default_icu_map: { 'ubuntu': '24.04', 'icu_pkg': 'libicu74', 'icu_ver': '74.2-1ubuntu3.1' }
+
+- name: Select ICU mapping entry for this host
+  set_fact:
+    mapped: "{{ debian_icu_map.get(ansible_facts.distribution_major_version | string, default_icu_map) }}"
+
+- name: Compute ubuntu_version and ICU package URL
+  set_fact:
+    ubuntu_version: >-
+      {{ (ansible_facts.distribution == 'Ubuntu')
+          | ternary(ansible_facts.distribution_version, mapped.ubuntu) }}
+    icu_pkg: "{{ '' if ansible_facts.distribution == 'Ubuntu' else mapped.icu_pkg }}"
+    icu_ver: "{{ '' if ansible_facts.distribution == 'Ubuntu' else mapped.icu_ver }}"
+    icu_vendor_url: >-
+      {{ '' if ansible_facts.distribution == 'Ubuntu'
+           else 'https://archive.ubuntu.com/ubuntu/pool/main/i/icu/' ~ mapped.icu_pkg ~ '_' ~ mapped.icu_ver ~ '_' ~ deb_arch ~ '.deb' }}
+
+- name: Download ICU package (Debian only)
+  ansible.builtin.get_url:
+    url: "{{ icu_vendor_url }}"
+    dest: "/tmp/{{ icu_pkg }}_{{ icu_ver }}_{{ deb_arch }}.deb"
+  when:
+    - ansible_facts.distribution == 'Debian'
+    - icu_vendor_url != ''
+
+- name: Install ICU package (Debian only)
+  ansible.builtin.apt:
+    deb: "/tmp/{{ icu_pkg }}_{{ icu_ver }}_{{ deb_arch }}.deb"
+  when:
+    - ansible_facts.distribution == 'Debian'
+    - icu_vendor_url != ''
+
 - name: Message
   debug:
-    msg: "Downloading RavenDB {{ ravendb_version }}..."
-       
+    msg:
+      info: "Downloading RavenDB {{ ravendb_version }}..."
+      distribution: "{{ ansible_facts.distribution }}"
+      distro_major: "{{ ansible_facts.distribution_major_version }}"
+      ubuntu_version: "{{ ubuntu_version }}"
+      icu_pkg: "{{ icu_pkg }}"
+
 - block:
   - name: Determine download url for latest version
     set_fact:
