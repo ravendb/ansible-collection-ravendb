@@ -77,7 +77,12 @@ class DatabaseReconciler:
             base_msg = msg.db_exists(spec.name)
 
             if spec.members:
-                return ModuleResult.error(msg="topology_members is only supported on database creation; modifying an existing database topology is blocked.")
+                return ModuleResult.error(
+                    msg=(
+                        "topology_members is only supported on database creation; "
+                        "modifying an existing database topology is not supported."
+                    )
+                )
 
         if spec.settings:
             current = setsvc.get_current(self.ctx, spec.name)
