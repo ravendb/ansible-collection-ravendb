@@ -54,10 +54,14 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
 - Database placement on specific nodes via `topology_members` in `ravendb.ravendb.database`.
 - Index deployment mode support (`rolling`, `parallel`) in `ravendb.ravendb.index`.
 - Per-index configuration reconciliation via `index_configuration` in `ravendb.ravendb.index`.
+- New `ravendb.ravendb.healthcheck` module:
+  - Available checks: `node_alive`, `cluster_connectivity`, `node_databases_online`.
+  - TLS parameters: `validate_certificate`, `certificate_path`, `ca_cert_path`.
+  - Timing/behavior: `max_time_to_wait`, `retry_interval_seconds`, `db_retry_interval_seconds`, `on_db_timeout`.
+  - Safety: auto-disables validation for IP hosts on node/cluster checks, read-only (no changes).
 - New `ravendb.ravendb.connection_string` module:
   - Providers: `RAVEN`, `SQL`, `OLAP`, `ELASTIC_SEARCH`, `QUEUE` (Kafka, RabbitMQ, AzureQueueStorage, AmazonSQS), `SNOWFLAKE`, `AI`.
   - All secrets parameters are treated as literal strings, If you need to load a secret from disk or the environment, use Ansible lookups.
   - Check mode support for connection strings.
-
 ### Changed
 - Modularized the project internals for clearer responsibilities and easier maintenance.

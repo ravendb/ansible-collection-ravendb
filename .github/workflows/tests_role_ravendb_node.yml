@@ -181,6 +181,19 @@ jobs:
         working-directory: roles/ravendb_node
         run: molecule test -s plugins-unsecured-nodes
 
+      - name: Run rolling-update UCs 
+        working-directory: roles/ravendb_node
+        run: |
+          UCs="\
+            happy-paths/node-cluster-and-db-online-ok.yml \
+            failure-paths/node-alive-fails-on-b.yml \
+            failure-paths/cluster-connectivity-fails-on-b.yml \
+            failure-paths/degraded-db-placement-on-a-c.yml \
+            failure-paths/db-online-fail-fast-on-load-error.yml"
+          for UC in $UCs; do
+            molecule test -s rolling-update -- --extra-vars "rolling_uc=${UC}"
+          done
+          
       - name: Set up .NET environment variables
         run: |
           export DOTNET_ROOT=$HOME/.dotnet

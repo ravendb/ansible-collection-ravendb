@@ -16,6 +16,11 @@ except Exception:
 
     from urlparse import urlparse
 
+try:
+    from ipaddress import ip_address as _ip_address
+except Exception:
+    _ip_address = None
+
 _NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _TAG_RE = re.compile(r"^[A-Z0-9]{1,4}$")
 
@@ -161,6 +166,24 @@ def validate_tag(tag):
     if not is_valid_tag(tag):
         return False, "Invalid node tag: {}. Must be uppercase alphanumeric (1–4 chars).".format(tag)
     return True, None
+
+
+def ip_host_warning(url, validate_certificate):
+    if not validate_certificate:
+        return None
+    if not is_valid_url(url):
+        return None
+    try:
+        host = urlparse(url).hostname or ""
+    except Exception:
+        return None
+    if not host or _ip_address is None:
+        return None
+    try:
+        _ip_address(host)
+        return "Host is an IP; certificate name validation may fail. Consider validate_certificate=false."
+    except Exception:
+        return None
 
 
 def collect_errors(*results):
