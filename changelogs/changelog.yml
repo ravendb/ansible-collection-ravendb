@@ -46,7 +46,7 @@ releases:
           - Ability to manage database settings via the `ravendb.ravendb.database` module.
           - Joining Let's Encrypt–secured nodes into existing RavenDB clusters.
 
-  - name: "Placement & Index Configuration"
+  - name: "Placement & Index Configuration & Healthcheck Module & Connection string Module "
     tag: "v1.0.4"
     version: "1.0.4"
     changes:
@@ -55,6 +55,11 @@ releases:
               - Fixed placement via `topology_members` to deploy on specific node tags.
           - Index deployment mode in `ravendb.ravendb.index` (rolling/parallel).
           - Per-index configuration reconciliation in `ravendb.ravendb.index` via `index_configuration`.
+          - New `ravendb.ravendb.healthcheck` module:
+              - Checks - `node_alive`, `cluster_connectivity`, `node_databases_online`.
+              - TLS options - `validate_certificate`, `certificate_path`, `ca_cert_path`.
+              - Timing/behavior - `max_time_to_wait`, `retry_interval_seconds`, `db_retry_interval_seconds`, `on_db_timeout`.
+              - Read-only operation; auto-disables cert validation for IP hosts on node/cluster checks.
           - New `ravendb.ravendb.connection_string` module:
               - Manage RavenDB connection strings (create/delete).
               - Providers supported -  `RAVEN`, `SQL`, `OLAP`, `ELASTIC_SEARCH`, `QUEUE` (Kafka, RabbitMQ, AzureQueueStorage, AmazonSQS), `SNOWFLAKE`, `AI`.
