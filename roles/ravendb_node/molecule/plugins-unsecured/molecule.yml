@@ -7,7 +7,8 @@ driver:
     '38888': 38888
     '44443': 443
 platforms:
-  - name: ubuntu-bionic
+  - name: ubuntu-bionic-node-a
+    hostname: ubuntu-bionic-node-a
     image: docker.io/geerlingguy/docker-ubuntu2204-ansible:latest
     privileged: true
     command: /usr/sbin/init
@@ -17,6 +18,9 @@ platforms:
       - /run
       - /tmp
     cgroupns_mode: host
+    networks:
+      - name: ravendbnet
+
 provisioner:
   name: ansible
   log: true
