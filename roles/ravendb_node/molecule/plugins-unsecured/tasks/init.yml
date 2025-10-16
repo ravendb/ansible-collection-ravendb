@@ -1,7 +1,8 @@
 ---
 - name: Set common vars
   ansible.builtin.set_fact:
-    base_url: "http://localhost:8080"
+    base_url: "http://ubuntu-bionic-node-a:8080"
+    db_cs: "db_cs"
     idx_def_initial:
       map:
         - "from c in docs.Users select new { c.name, count = 5 }"

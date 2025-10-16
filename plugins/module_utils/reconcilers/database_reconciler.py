@@ -8,6 +8,7 @@ from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core import messages as msg
+from ansible_collections.ravendb.ravendb.plugins.module_utils.core import files as file
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services import database_service as dbs
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services import db_settings_service as setsvc
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services import encryption_service as encsvc
@@ -56,9 +57,9 @@ class DatabaseReconciler:
                 if spec.encryption.generate_key:
                     key = encsvc.fetch_generated_key(self.ctx, tls)
                     if spec.encryption.output_path:
-                        encsvc.write_key_safe(spec.encryption.output_path, key)
+                        file.write_key_safe(spec.encryption.output_path, key)
                 else:
-                    key = encsvc.read_key(spec.encryption.key_path)
+                    key = file.read_key(spec.encryption.key_path)
                 encsvc.distribute_key(self.ctx, spec.name, key, tls, only_tags=(spec.members or None))
 
             if check_mode:

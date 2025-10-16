@@ -1,18 +1,14 @@
 ---
 - name: Verify
-  hosts: all
+  hosts: localhost
   gather_facts: false
   vars:
-    ravendb_venv_path: "/root/.ravendb_ansible"
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
   tasks:
     - name: Install RavenDB Python client prerequisites
       include_role:
         name: ravendb.ravendb.ravendb_python_client_prerequisites
-
-    - name: Point Ansible at venv interpreter
-      set_fact:
-        ansible_python_interpreter: "{{ ravendb_venv_path }}/bin/python"
 
     - name: Reset SSH connection to pick up interpreter
       ansible.builtin.meta: reset_connection
@@ -28,3 +24,8 @@
     - name: Index suite
       import_tasks: tasks/index.yml
       tags: [index]
+
+    # todo: uncomment once we will have license to test with
+    # - name: Connection String suite
+    #   import_tasks: tasks/cs.yml
+    #   tags: [cs]

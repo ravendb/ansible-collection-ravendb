@@ -54,6 +54,10 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
 - Database placement on specific nodes via `topology_members` in `ravendb.ravendb.database`.
 - Index deployment mode support (`rolling`, `parallel`) in `ravendb.ravendb.index`.
 - Per-index configuration reconciliation via `index_configuration` in `ravendb.ravendb.index`.
+- New `ravendb.ravendb.connection_string` module:
+  - Providers: `RAVEN`, `SQL`, `OLAP`, `ELASTIC_SEARCH`, `QUEUE` (Kafka, RabbitMQ, AzureQueueStorage, AmazonSQS), `SNOWFLAKE`, `AI`.
+  - Secrets may be passed inline or as file paths (file contents read securely).
+  - Check mode support for connection strings.
 
 ### Changed
 - Modularized the project internals for clearer responsibilities and easier maintenance.

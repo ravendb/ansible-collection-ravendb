@@ -7,8 +7,6 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
-import os
-import errno
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services.cluster_service import fetch_topology, collect_tags
 
 
@@ -31,32 +29,6 @@ def fetch_generated_key(ctx, tls):
     response = _requests().get(url, cert=cert, verify=verify)
     response.raise_for_status()
     return response.text.strip()
-
-
-def write_key_safe(path, key):
-    """
-    Write the key to 'path'.
-    """
-    directory = os.path.dirname(path) or "."
-    try:
-        os.makedirs(directory)
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise
-    prev_umask = os.umask(0o177)
-    try:
-        with open(path, "w") as f:
-            f.write(key + "\n")
-    finally:
-        os.umask(prev_umask)
-
-
-def read_key(path):
-    """
-    Read entire file and strip trailing whitespace/newlines.
-    """
-    with open(path, "r") as f:
-        return f.read().strip()
 
 
 def distribute_key(ctx, db_name, key, tls, only_tags=None):

@@ -180,3 +180,31 @@ def node_added(tag, node_type):
 
 def failed_add_node(tag, error):
     return "Failed to add node '{}': {}".format(tag, error)
+
+
+def cs_exists(name, t):
+    return "Connection string '{}' (type {}) already exists. No changes made.".format(name, t)
+
+
+def cs_not_found(name, t):
+    return "Connection string '{}' not found (type {}).".format(name, t)
+
+
+def cs_created(name, t):
+    return "Created connection string '{}' (type {}).".format(name, t)
+
+
+def cs_would_create(name, t):
+    return "Would create connection string '{}' (type {}).".format(name, t)
+
+
+def cs_deleted(name, t):
+    return "Deleted connection string '{}' (type {}).".format(name, t)
+
+
+def cs_would_delete(name, t):
+    return "Would delete connection string '{}' (type {}).".format(name, t)
+
+
+def cs_no_changes():
+    return "Connection strings: no changes."
