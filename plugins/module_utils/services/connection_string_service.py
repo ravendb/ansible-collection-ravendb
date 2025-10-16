@@ -54,14 +54,15 @@ def _cs_enum(cs_type):
 def builder_for(cs_type):
     type = (cs_type or "").upper()
     mapping = {
-        "RAVEN":          _build_raven,
-        "SQL":            _build_sql,
-        "OLAP":           _build_olap,
+        "RAVEN": _build_raven,
+        "SQL": _build_sql,
+        "OLAP": _build_olap,
         "ELASTIC_SEARCH": _build_elastic,
-        "QUEUE":          _build_queue,
-        "SNOWFLAKE":      _build_snowflake,
-        "AI":             _build_ai,
+        "QUEUE": _build_queue,
+        "SNOWFLAKE": _build_snowflake,
+        "AI": _build_ai,
     }
+
     try:
         return mapping[type]
     except KeyError:
@@ -502,7 +503,7 @@ def fetch_connection_string(ctx, cs_type, name, tls=None):
 def _get_all_connection_strings_json(ctx, tls):
     base = ctx.store.urls[0].rstrip("/")
     db = ctx.store.database
-    url = f"{base}/databases/{db}/admin/connection-strings"
+    url = "{}/databases/{}/admin/connection-strings".format(base.rstrip("/"), db)
 
     cert = verify = None
     if tls:
@@ -538,7 +539,7 @@ def _olap_try_fallback_on_deserialization_error(exc, ctx, name, tls):
 
 def _get_server_version(ctx, tls):
     base = ctx.store.urls[0].rstrip("/")
-    url = f"{base}/build/version"
+    url = "{}/build/version".format(base)
 
     cert = verify = None
     if tls:
@@ -571,7 +572,7 @@ def _parse_version(version_string):
         return (int(parts[0]), int(parts[1]), int(parts[2]))
     except Exception:
         return (0, 0, 0)
-    
+
 
 def require_min_version_for_type(spec, ctx, tls):
     cs_type = (spec.cs_type or "").upper()
@@ -607,7 +608,7 @@ def require_min_version_for_type(spec, ctx, tls):
             )
         )
         raise RuntimeError(
-            f"{custom_msg} connection strings require RavenDB >= {needed}; server is '{server_raw}'."
+            "{} connection strings require RavenDB >= {}; server is '{}'.".format(custom_msg, needed, server_raw)
         )
 
 
