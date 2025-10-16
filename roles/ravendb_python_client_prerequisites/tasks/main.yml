@@ -52,6 +52,10 @@
   ansible.builtin.command:
     cmd: "{{ ravendb_venv_path }}/bin/python -m pip install --upgrade pip"
 
+- name: Bootstrap pip/setuptools/wheel/packaging in the venv
+  ansible.builtin.command:
+    cmd: "{{ ravendb_venv_path }}/bin/python -m pip install --upgrade pip setuptools wheel packaging"
+
 - name: Check Python version and pip location in virtual environment
   ansible.builtin.command:
     cmd: "{{ ravendb_venv_path }}/bin/python -m pip --version"

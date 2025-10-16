@@ -11,7 +11,8 @@
         ravendb_version_minor: 7.1
         ravendb_release_channel: stable
         ravendb_arch: linux-x64
-        ravendb_license_file: "license.json"
+        # todo: enable license file for paid features testing
+        #ravendb_license_file: "license.json"
         ravendb_settings_preset: default
         ravendb_settings_override:
           Security.UnsecuredAccessAllowed: PublicNetwork
@@ -72,15 +73,15 @@
         grep -qxF "{{ line }}" /etc/hosts || echo "{{ line }}" >> /etc/hosts
         {% endfor %}
     
-    # ENABLE FOR CI / COMMENT OUT FOR LOCAL TESTING
-    # - name: Update /etc/hosts on controller
-    #   delegate_to: localhost
-    #   run_once: true
-    #   become: true
-    #   ansible.builtin.blockinfile:
-    #     path: /etc/hosts
-    #     marker: "# {mark} ANSIBLE RAVENDBNET"
-    #     block: "{{ hostvars['localhost'].docker_hosts_block | trim }}"
+    #ENABLE FOR CI / COMMENT OUT FOR LOCAL TESTING
+    - name: Update /etc/hosts on controller
+      delegate_to: localhost
+      run_once: true
+      become: true
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} ANSIBLE RAVENDBNET"
+        block: "{{ hostvars['localhost'].docker_hosts_block | trim }}"
 
     - name: Verify Studio is reachable from controller for each host
       delegate_to: localhost
