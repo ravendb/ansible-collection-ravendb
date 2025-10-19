@@ -18,7 +18,8 @@ from ansible_collections.ravendb.ravendb.plugins.module_utils.services.healthche
 
 CHECK_NODE_ALIVE = 'node_alive'
 CHECK_CLUSTER_CONN = 'cluster_connectivity'
-CHECK_DB_ONLINE = 'node_databases_online'
+CHECK_DB_GROUPS_AVAILABLE = 'db_groups_available'
+CHECK_DB_GROUPS_AVAILABLE_EXCL = 'db_groups_available_excluding_target'
 
 
 class HealthcheckReconciler(object):
@@ -69,25 +70,28 @@ class HealthcheckReconciler(object):
 
                 summary_bits.append("cluster_connectivity OK (attempts:{})".format(result.get('attempts', 0)))
 
-            if CHECK_DB_ONLINE in spec.checks:
+            if (CHECK_DB_GROUPS_AVAILABLE in spec.checks) or (CHECK_DB_GROUPS_AVAILABLE_EXCL in spec.checks):
                 if hostname_is_ip(spec.url):
-                    return ModuleResult.error("db_online requires a node hostname URL (not an IP).")
+                    return ModuleResult.error("database group availability checks require a hostname URL (not an IP).")
 
                 excluded = None
                 try:
-                    topo = fetch_topology_http(spec.url, tls)
-                    target = spec.url.rstrip("/")
-                    for group in (
-                        getattr(topo, "members", {}) or {},
-                        getattr(topo, "watchers", {}) or {},
-                        getattr(topo, "promotables", {}) or {},
-                    ):
-                        for tag, u in group.items():
-                            if (u or "").rstrip("/") == target:
-                                excluded = tag
+                    if CHECK_DB_GROUPS_AVAILABLE_EXCL in spec.checks:
+                        topo = fetch_topology_http(spec.url, tls)
+                        target = spec.url.rstrip("/")
+                        for group in (
+                            getattr(topo, "members", {}) or {},
+                            getattr(topo, "watchers", {}) or {},
+                            getattr(topo, "promotables", {}) or {},
+                        ):
+                            for tag, u in group.items():
+                                if (u or "").rstrip("/") == target:
+                                    excluded = tag
+                                    break
+                            if excluded:
                                 break
-                        if excluded:
-                            break
+                    else:
+                        excluded = None
                 except Exception:
                     excluded = None
 
@@ -102,7 +106,8 @@ class HealthcheckReconciler(object):
 
                     if isinstance(result, dict):
                         result["excluded_tag"] = excluded
-                    results[CHECK_DB_ONLINE] = result
+                    key = CHECK_DB_GROUPS_AVAILABLE_EXCL if CHECK_DB_GROUPS_AVAILABLE_EXCL in spec.checks else CHECK_DB_GROUPS_AVAILABLE
+                    results[key] = result
 
                     if not result.get("ok"):
                         err = result.get("error") or "unknown error"
@@ -110,23 +115,23 @@ class HealthcheckReconciler(object):
                         if err == "timeout":
                             if spec.on_db_timeout == "fail":
                                 return ModuleResult.error(
-                                    "node_databases_online failed: timeout",
+                                    "{} failed: timeout".format(key),
                                     diagnostics=results,
                                 )
                             summary_bits.append(
-                                "node_databases_online TIMEOUT (excluded:{} attempts:{})".format(
-                                    excluded or "?", result.get("attempts", 0)
+                                "{} TIMEOUT (excluded:{} attempts:{})".format(
+                                    key, excluded or "?", result.get("attempts", 0)
                                 )
                             )
                         else:
                             return ModuleResult.error(
-                                "node_databases_online failed: {}".format(err),
+                                "{} failed: {}".format(key, err),
                                 diagnostics=results,
                             )
                     else:
                         summary_bits.append(
-                            "node_databases_online OK (excluded:{} attempts:{})".format(
-                                excluded or "?", result.get("attempts", 0)
+                            "{} OK (excluded:{} attempts:{})".format(
+                                key, excluded or "?", result.get("attempts", 0)
                             )
                         )
                 finally:

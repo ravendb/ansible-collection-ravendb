@@ -55,7 +55,7 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
 - Index deployment mode support (`rolling`, `parallel`) in `ravendb.ravendb.index`.
 - Per-index configuration reconciliation via `index_configuration` in `ravendb.ravendb.index`.
 - New `ravendb.ravendb.healthcheck` module:
-  - Available checks: `node_alive`, `cluster_connectivity`, `node_databases_online`.
+  - Available checks: `node_alive`, `cluster_connectivity`, `db_groups_available`, `db_groups_available_excluding_target`.
   - TLS parameters: `validate_certificate`, `certificate_path`, `ca_cert_path`.
   - Timing/behavior: `max_time_to_wait`, `retry_interval_seconds`, `db_retry_interval_seconds`, `on_db_timeout`.
   - Safety: auto-disables validation for IP hosts on node/cluster checks, read-only (no changes).

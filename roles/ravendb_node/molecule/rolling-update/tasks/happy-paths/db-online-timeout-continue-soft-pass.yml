@@ -1,6 +1,6 @@
 # ======================================
 # scenario: db-online-timeout-continue-soft-pass
-# gates used: node_alive, cluster_connectivity, node_databases_online (policy=continue on timeout)
+# gates used: node_alive, cluster_connectivity, db_groups_available_excluding_target (policy=continue on timeout)
 #
 # flow:
 # 1. setup 3 independent nodes with ravendb 5.4
@@ -9,12 +9,12 @@
 # 4. stop ravendb service on A,C
 # 5. try to rolling upgrade to 6.2 serially:
 #    - roll A -> B -> C
-#    - pre-gate node_alive + cluster_connectivity + node_databases_online
+#    - pre-gate node_alive + cluster_connectivity + db_groups_available_excluding_target
 #    - upgrade node to 6.2
-#    - post-gate node_alive + cluster_connectivity + node_databases_online
+#    - post-gate node_alive + cluster_connectivity + db_groups_available_excluding_target
 #
 # checkpoints:
-# - timeout on pre-gate node_databases_online on B - no explicit failure, proceed although lack of confirmation
+# - timeout on pre-gate db_groups_available_excluding_target on B - no explicit failure, proceed although lack of confirmation
 #
 # outcome:
 # - PASS (soft pass). assert timeout. all nodes upgraded.
@@ -91,9 +91,9 @@
         _pre_gate_timeout: "{{ 6 if inventory_hostname == node_b else 60 }}"
         _pre_gate_retry: 2
         _pre_gate_checks: >-
-          {{ ['node_alive','node_databases_online']
+          {{ ['node_alive','db_groups_available_excluding_target']
             if inventory_hostname == node_b
-            else ['node_alive','cluster_connectivity','node_databases_online'] }}
+            else ['node_alive','cluster_connectivity','db_groups_available_excluding_target'] }}
 
 
     - name: Stop ravendb on A and C
@@ -124,13 +124,13 @@
     - debug:
         msg: "Gate result: {{ gate_result }}"
     
-    - name: Assert db_online TIMEOUT on B (soft pass)
+    - name: Assert db_groups_available_excluding_target TIMEOUT on B (soft pass)
       when: _is_b
       delegate_to: localhost
       ansible.builtin.assert:
         that:
-          - "'node_databases_online TIMEOUT' in (gate_result.msg | default(''))"
-        fail_msg: "Expected db_online TIMEOUT soft-pass on B. Full: {{ gate_result | to_nice_json }}"
+          - "'db_groups_available_excluding_target TIMEOUT' in (gate_result.msg | default(''))"
+        fail_msg: "Expected db_groups_available_excluding_target TIMEOUT soft-pass on B. Full: {{ gate_result | to_nice_json }}"
 
     - name: Restart a,c
       when: _is_b

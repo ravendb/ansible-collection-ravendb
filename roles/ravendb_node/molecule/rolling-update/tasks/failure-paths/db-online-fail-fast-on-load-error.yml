@@ -1,6 +1,6 @@
 # ======================================
 # scenario: db-online-fail-fast-on-load-error
-# gates used: node_alive, cluster_connectivity, node_databases_online
+# gates used: node_alive, cluster_connectivity, db_groups_available_excluding_target
 #
 # flow:
 # 1. setup 3 independent nodes with ravendb 5.4
@@ -9,13 +9,13 @@
 # 4. corrupt DB C
 # 5. try to rolling upgrade to 6.2 serially:
 #    - roll A -> B -> C
-#    - pre-gate node_alive + cluster_connectivity + node_databases_online
+#    - pre-gate node_alive + cluster_connectivity + db_groups_available_excluding_target
 #    - upgrade node to 6.2
-#    - post-gate node_alive + cluster_connectivity + node_databases_online
+#    - post-gate node_alive + cluster_connectivity + db_groups_available_excluding_target
 #
 # checkpoints:
 # - A pre-gate 'node_alive','cluster_connectivity' passes
-# - A pre-gate should fail fast on node_databases_online 
+# - A pre-gate should fail fast on db_groups_available_excluding_target
 #
 # outcome:
 # - FAIL before upgrading A. A=5.4, B=5.4, C=5.4
@@ -110,13 +110,13 @@
   hosts: all
   gather_facts: true
   serial: 1       
-  tasks:
+  tasks:      
     - name: Per-node gates pre upgrade
       delegate_to: localhost
       become: false
       ravendb.ravendb.healthcheck:
         url: "http://{{ ansible_hostname }}:8080"
-        checks: ['node_alive', 'cluster_connectivity', 'node_databases_online']
+        checks: ['node_alive', 'cluster_connectivity', 'db_groups_available_excluding_target']
         max_time_to_wait: 60
         retry_interval_seconds: 3
         on_db_timeout: fail
@@ -131,15 +131,15 @@
       set_fact:
         _diag: "{{ gate_result.ansible_module_results | default(gate_result.diagnostics) }}"
 
-    - name: Assert db_online failed on A
+    - name: Assert db_groups_available_excluding_target failed on A
       delegate_to: localhost
       assert:
         that:
-          - gate_result.msg is search('node_databases_online failed: database_load_error')
-          - _diag.node_databases_online.error == 'database_load_error'
-          - _diag.node_databases_online.detail.db == 'my_db'
-          - _diag.node_databases_online.excluded_tag == 'A'
-        fail_msg: "Expected immediate fail on db_online with database_load_error. Full: {{ gate_result | to_nice_json }}"
+          - "(gate_result.msg | string) is search('db_groups_available_excluding_target failed: database_load_error')"
+          - "_diag.db_groups_available_excluding_target.error == 'database_load_error'"
+          - "_diag.db_groups_available_excluding_target.detail.db == 'my_db'"
+          - "_diag.db_groups_available_excluding_target.excluded_tag == 'A'"
+        fail_msg: "Expected immediate fail on db_groups_available_excluding_target with database_load_error. Full: {{ gate_result | to_nice_json }}"
 
     - name: End play after expected failure
       when: inventory_hostname == 'ubuntu-bionic-node-a'
