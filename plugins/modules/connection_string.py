@@ -39,7 +39,7 @@ options:
   properties:
     description:
       - Type-specific properties dictionary (see examples).
-      - Secrets may be inline or loaded from files via the explicit prefix: use C(file:///abs/path).
+      - Secrets may be inline or loaded from files via the explicit prefix - use C(file:///abs/path).
       - Without the C(file://) prefix, values are treated literally.
     required: false
     type: dict
