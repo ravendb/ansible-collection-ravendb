@@ -168,7 +168,7 @@
       authentication:
         certificate:
           certificates_base64:
-            - "/tmp/client.pfx.b64"
+            - "file:///tmp/client.pfx.b64"
     state: present
   register: elastic_cert_created
 

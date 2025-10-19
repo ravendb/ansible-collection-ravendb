@@ -139,7 +139,7 @@
         aws_region_name: "us-east-1"
         bucket_name: "my-bucket"
         remote_folder_name: "olap/"
-        aws_access_key: "/tmp/aws_access_key.txt"
+        aws_access_key: "file:///tmp/aws_access_key.txt"
         aws_secret_key: "SECRET..."
     state: present
   register: olap_s3_from_file_created

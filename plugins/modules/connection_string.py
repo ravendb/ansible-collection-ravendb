@@ -39,7 +39,8 @@ options:
   properties:
     description:
       - Type-specific properties dictionary (see examples).
-      - Secrets may be provided inline or via file paths; when a readable file path is provided, its content is used.
+      - Secrets may be inline or loaded from files via the explicit prefix: use C(file:///abs/path).
+      - Without the C(file://) prefix, values are treated literally.
     required: false
     type: dict
     default: null
@@ -82,7 +83,7 @@ EXAMPLES = '''
     name: "sql-target"
     cs_type: SQL
     properties:
-      connection_string: "/etc/ansible/secrets/sql_dsn.txt"
+      connection_string: "file:///etc/ansible/secrets/sql_dsn.txt"
       factory_name: "Npgsql.NpgsqlFactory"
     state: present
 
@@ -99,7 +100,7 @@ EXAMPLES = '''
         disabled: false
         bucket_name: "my-olap-bucket"
         remote_folder_name: "exports"
-        google_credentials_json: "/etc/ansible/secrets/gcs.json"
+        google_credentials_json: "file:///etc/ansible/secrets/gcs.json"
         overriding_external_script:
           exec: "/usr/local/bin/olap.sh"
           arguments: ["--fast"]
@@ -117,7 +118,7 @@ EXAMPLES = '''
       authentication:
         basic:
           username: "elastic"
-          password: "/etc/ansible/secrets/es_password.txt"
+          password: "file:///etc/ansible/secrets/es_password.txt"
     state: present
 
 # Queue (Azure Queue Storage) - requires RavenDB >= 6.2
@@ -130,7 +131,7 @@ EXAMPLES = '''
     properties:
       broker_type: "AZUREQUEUESTORAGE"
       azure_queue_storage_settings:
-        connection_string: "/etc/ansible/secrets/az_queue_conn.txt"
+        connection_string: "file:///etc/ansible/secrets/az_queue_conn.txt"
     state: present
 
 # Queue (Amazon SQS) - requires RavenDB >= 7.1
@@ -144,8 +145,8 @@ EXAMPLES = '''
       broker_type: "AMAZONSQS"
       amazon_sqs_settings:
         basic:
-          access_key: "/etc/ansible/secrets/aws_access_key.txt"
-          secret_key: "/etc/ansible/secrets/aws_secret_key.txt"
+          access_key: "file:///etc/ansible/secrets/aws_access_key.txt"
+          secret_key: "file:///etc/ansible/secrets/aws_secret_key.txt"
           region_name: "eu-central-1"
     state: present
 
@@ -157,7 +158,7 @@ EXAMPLES = '''
     name: "snowflake-dwh"
     cs_type: SNOWFLAKE
     properties:
-      connection_string: "/etc/ansible/secrets/snowflake_dsn.txt"
+      connection_string: "file:///etc/ansible/secrets/snowflake_dsn.txt"
     state: present
 
 # AI (OpenAI) - requires RavenDB >= 7.1
@@ -171,7 +172,7 @@ EXAMPLES = '''
       identifier: "default"
       model_type: "CHAT"
       openai_settings:
-        api_key: "/etc/ansible/secrets/openai.key"
+        api_key: "file:///etc/ansible/secrets/openai.key"
         base_url: "https://api.openai.com/v1"
     state: present
 
