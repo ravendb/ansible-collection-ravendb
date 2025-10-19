@@ -131,7 +131,6 @@ jobs:
           printf '%s' "$RAVEN_LICENSE" > "$LICENSE_FILE"
           chmod 600 "$LICENSE_FILE"
           echo "RAVEN_LICENSE_FILE=$LICENSE_FILE" >> "$GITHUB_ENV"
-  
       - name: Run Debian unsecured scenario
         working-directory: roles/ravendb_node
         run: molecule test -s unsecured

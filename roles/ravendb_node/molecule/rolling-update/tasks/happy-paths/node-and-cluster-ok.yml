@@ -40,6 +40,10 @@
         url: "http://ubuntu-bionic-node-c:8080"
         leader_url: "http://ubuntu-bionic-node-a:8080"
 
+    - name: Let cluster stabilize
+      ansible.builtin.pause:
+        seconds: 5
+
     - name: Fetch topology
       ansible.builtin.uri:
         url: "http://ubuntu-bionic-node-a:8080/cluster/topology"

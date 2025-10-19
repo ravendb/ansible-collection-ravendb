@@ -36,7 +36,6 @@ platforms:
     networks:
       - name: ravendbnet
 
-
   - name: ubuntu-bionic-node-c
     hostname: ubuntu-bionic-node-c
     image: docker.io/geerlingguy/docker-ubuntu2204-ansible:latest

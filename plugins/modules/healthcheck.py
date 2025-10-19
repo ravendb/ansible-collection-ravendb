@@ -15,7 +15,8 @@ description:
   - Runs one or more health checks against a RavenDB node.
   - C(node_alive) verifies C(/setup/alive) returns success.
   - C(cluster_connectivity) verifies the node can ping cluster peers.
-  - C(node_databases_online) ensures all databases have at least one usable member (excluding the target node itself), useful for rolling-upgrade.
+  - C(db_groups_available) verifies each database group has at least one usable member in the cluster (no exclusion).
+  - C(db_groups_available_excluding_target) verifies each database group has at least one usable member while excluding the node identified by C(url).
   - Supports secured connections using client certificates and optional CA verification.
 version_added: "1.0.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
@@ -49,7 +50,7 @@ options:
     required: false
     type: list
     elements: str
-    choices: [node_alive, cluster_connectivity, node_databases_online]
+    choices: [node_alive, cluster_connectivity, db_groups_available, db_groups_available_excluding_target]
     default:
       - node_alive
       - cluster_connectivity
@@ -67,13 +68,13 @@ options:
     default: 5
   db_retry_interval_seconds:
     description:
-      - Interval in seconds between attempts for C(node_databases_online).
+      - Interval in seconds between attempts for C(db_groups_available) and C(db_groups_available_excluding_target).
     required: false
     type: int
     default: 10
   on_db_timeout:
     description:
-      - Behavior when C(node_databases_online) times out.
+      - Behavior when C(db_groups_available) times out.
       - C(fail) fails the task; C(continue) returns success with timeout noted in results.
     required: false
     type: str
@@ -100,22 +101,22 @@ EXAMPLES = '''
     validate_certificate: true
     checks: ["node_alive", "cluster_connectivity"]
 
-- name: Add databases-online check, continue on timeout
+- name: Add database-group availability (exclude current), continue on timeout
   ravendb.ravendb.healthcheck:
     url: "https://node-b.example.com:443"
     certificate_path: "/etc/ravendb/admin.client.pem"
     ca_cert_path: "/etc/ssl/private/ca.pem"
-    checks: ["node_alive", "cluster_connectivity", "node_databases_online"]
+    checks: ["node_alive", "cluster_connectivity", "db_groups_available_excluding_target"]
     max_time_to_wait: 900
     db_retry_interval_seconds: 15
     on_db_timeout: continue
 
-- name: Databases-online strict gating (fail on timeout)
+- name: Cluster-wide database-group availability (no exclusion)
   ravendb.ravendb.healthcheck:
     url: "https://node-c.example.com:443"
     certificate_path: "/etc/ravendb/admin.client.pem"
     ca_cert_path: "/etc/ssl/private/ca.pem"
-    checks: ["node_databases_online"]
+    checks: ["db_groups_available"]
     max_time_to_wait: 1200
     db_retry_interval_seconds: 10
     on_db_timeout: fail
@@ -152,7 +153,7 @@ results:
       error: null
       detail:
         peers: 3
-    node_databases_online:
+    db_groups_available_excluding_target:
       ok: false
       attempts: 60
       error: timeout
@@ -184,7 +185,7 @@ except ImportError:
     LIB_ERR = traceback.format_exc()
 
 
-CHECK_CHOICES = ('node_alive', 'cluster_connectivity', 'node_databases_online')
+CHECK_CHOICES = ('node_alive', 'cluster_connectivity', 'db_groups_available', 'db_groups_available_excluding_target')
 
 
 def main():

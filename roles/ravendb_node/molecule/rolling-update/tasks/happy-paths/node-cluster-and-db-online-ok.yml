@@ -1,7 +1,7 @@
 ---
 # ======================================
 # scenario: rolling-upgrade-all-gates-rf3-ok
-# gates used: node_alive, cluster_connectivity, node_databases_online
+# gates used: node_alive, cluster_connectivity, db_groups_available_excluding_target, db_groups_available
 #
 # flow:
 # 1. setup 3 independent nodes with ravendb 5.4
@@ -9,13 +9,13 @@
 # 3. Create RF=3 database replicated on A/B/C
 # 4. try to rolling upgrade to 6.2 serially:
 #    - roll A -> B -> C
-#    - pre-gate node_alive + cluster_connectivity + node_databases_online
+#    - pre-gate node_alive + cluster_connectivity + db_groups_available_excluding_target
 #    - upgrade node to 6.2
-#    - post-gate node_alive + cluster_connectivity + + node_databases_online
+#    - post-gate node_alive + cluster_connectivity + db_groups_available_excluding_target
 #
 # checkpoints:
-# - pre-upgrade: 'node_alive','cluster_connectivity','node_databases_online'
-# - post-upgrade: 'node_alive','cluster_connectivity','node_databases_online'
+# - pre-upgrade: 'node_alive','cluster_connectivity','db_groups_available_excluding_target'
+# - post-upgrade: 'node_alive','cluster_connectivity','db_groups_available_excluding_target'
 #
 # outcome:
 # - PASS. All nodes at 6.2; DB remains available throughout
@@ -39,6 +39,10 @@
         type: "Member"
         url: "http://ubuntu-bionic-node-c:8080"
         leader_url: "http://ubuntu-bionic-node-a:8080"
+
+    - name: Let cluster stabilize
+      ansible.builtin.pause:
+        seconds: 5
 
     - name: Fetch topology
       ansible.builtin.uri:
@@ -76,14 +80,23 @@
   gather_facts: true
   serial: 1
   tasks:
-    - name: Per-node gates pre upgrade
+    - name: Per-node gates pre (node-cluster-and-db-online-ok)
       delegate_to: localhost
       ravendb.ravendb.healthcheck:
         url: "http://{{ ansible_hostname }}:8080"
-        checks: ['node_alive', 'cluster_connectivity', 'node_databases_online']
+        checks: ['node_alive', 'cluster_connectivity', 'db_groups_available_excluding_target']
         max_time_to_wait: 60
         retry_interval_seconds: 3
       register: gate_result
+      failed_when: false
+      retries: 10
+      delay: 3
+      until: gate_result.failed == false
+
+    - name: Fail if pre-gate never stabilized
+      when: gate_result.failed | default(false)
+      fail:
+        msg: "Pre-gate failed after retries: {{ gate_result | to_nice_json }}"
 
     - debug:
         msg: "Gate result: {{ gate_result }}"
@@ -100,9 +113,10 @@
       delegate_to: localhost
       ravendb.ravendb.healthcheck:
         url: "http://{{ ansible_hostname }}:8080"
-        checks: ['node_alive', 'cluster_connectivity', 'node_databases_online']
+        checks: ['node_alive', 'cluster_connectivity', 'db_groups_available_excluding_target']
         max_time_to_wait: 60
         retry_interval_seconds: 3
+        db_retry_interval_seconds: 5
       register: gate_result
     
     - name: Get RavenDB version
@@ -117,3 +131,23 @@
         that:
           - ravendb_version_result.stdout.startswith('6.2')
         fail_msg: "Server version output: {{ ravendb_version_result.stdout }}"
+
+- name: Final cluster-wide database-group availability (no exclusion)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: db_groups_available should be OK after rollout
+      ravendb.ravendb.healthcheck:
+        url: "http://ubuntu-bionic-node-a:8080"
+        checks: ['db_groups_available']
+        max_time_to_wait: 60
+        db_retry_interval_seconds: 5
+      register: final_gate
+
+    - name: Assert cluster-wide db_groups_available OK
+      ansible.builtin.assert:
+        that:
+          - final_gate.changed == false
+          - final_gate.msg is search('db_groups_available OK')
+        fail_msg: "Expected db_groups_available OK. Full: {{ final_gate | to_nice_json }}"
