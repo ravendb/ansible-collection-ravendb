@@ -1,9 +1,0 @@
----
-- hosts: all
-  remote_user: root
-  roles:
-    - role: ravendb.ravendb.ravendb_node
-      vars:
-          ravendb_state: present
-          ravendb_version_minor: 7.1
-          ravendb_settings_preset: default
