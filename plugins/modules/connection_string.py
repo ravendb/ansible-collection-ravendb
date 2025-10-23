@@ -99,7 +99,7 @@ EXAMPLES = '''
         disabled: false
         bucket_name: "my-olap-bucket"
         remote_folder_name: "exports"
-        google_credentials_json: "{{ lookup('ansible.builtin.file', '/etc/ansible/secrets//gcs.json') | trim }}" 
+        google_credentials_json: "{{ lookup('ansible.builtin.file', '/etc/ansible/secrets//gcs.json') | trim }}"
         overriding_external_script:
           exec: "/usr/local/bin/olap.sh"
           arguments: ["--fast"]

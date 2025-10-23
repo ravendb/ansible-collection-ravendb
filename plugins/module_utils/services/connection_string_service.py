@@ -90,10 +90,6 @@ def _build_sql(name, p):
     )
 
 
-# try to work around known OLAP serialization errors in the Python client. (bug nr 2)
-# the bugs are listed here: RDBC-954 Python client: fix Connection String R/W Bugs (OLAP + AI)
-# https://issues.hibernatingrhinos.com/issue/RDBC-954/Python-client-fix-Connection-String-R-W-Bugs-OLAP-AI
-# todo:  refactor this when the py client is fixed
 def _build_olap(name, p):
     from ravendb.documents.operations.etl.olap.connection import OlapConnectionString
 
@@ -157,6 +153,7 @@ def _build_olap(name, p):
             "AccountName": d.get("account_name"),
         }
         r = d.get("account_key")
+
         if r is not None:
             out["AccountKey"] = file.read_secret(r)
         r = d.get("sas_token")
@@ -487,17 +484,10 @@ def fetch_connection_string(ctx, cs_type, name, tls=None):
     cs_kind = (cs_type or "").upper()
     cs_enum = _cs_enum(cs_type)
 
-    try:
-        res = ctx.store.maintenance.send(GetConnectionStringsOperation(name, cs_enum))
-        attr = _cs_kind_info(cs_kind)["attr"]
-        by_name = getattr(res, attr, None) or {}
-        return by_name.get(name)
-    except Exception as exc:
-        if cs_kind == "OLAP":
-            handled, value = _olap_try_fallback_on_deserialization_error(exc, ctx, name, tls)
-            if handled:
-                return value
-        raise
+    res = ctx.store.maintenance.send(GetConnectionStringsOperation(name, cs_enum))
+    attr = _cs_kind_info(cs_kind)["attr"]
+    by_name = getattr(res, attr, None) or {}
+    return by_name.get(name)
 
 
 def _get_all_connection_strings_json(ctx, tls):
@@ -512,29 +502,6 @@ def _get_all_connection_strings_json(ctx, tls):
     resp = _requests().get(url, cert=cert, verify=verify, timeout=10)
     resp.raise_for_status()
     return resp.json()
-
-
-# try to work around known OLAP deserialization errors in the Python client. (bug nr 1)
-# the bugs are listed here: RDBC-954 Python client: fix Connection String R/W Bugs (OLAP + AI)
-# https://issues.hibernatingrhinos.com/issue/RDBC-954/Python-client-fix-Connection-String-R-W-Bugs-OLAP-AI
-# todo:  refactor this when the py client is fixed
-def _olap_try_fallback_on_deserialization_error(exc, ctx, name, tls):
-    err_text = str(exc)
-    is_known_bug = (
-        "GetBackupConfigurationScript" in err_text
-        or "LastFullBackup" in err_text
-        or "LastIncrementalBackup" in err_text
-        or ("NoneType" in err_text and "subscriptable" in err_text)
-    )
-    if not is_known_bug:
-        return False, None
-
-    data = _get_all_connection_strings_json(ctx, tls)
-    olap_map = data.get(_CS_KIND_MAP["OLAP"]["bucket"]) or {}
-    if name in olap_map:
-        from ravendb.documents.operations.etl.olap.connection import OlapConnectionString
-        return True, OlapConnectionString(name=name)
-    return True, None
 
 
 def _get_server_version(ctx, tls):

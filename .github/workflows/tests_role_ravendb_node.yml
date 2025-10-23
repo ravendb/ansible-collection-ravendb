@@ -53,6 +53,8 @@ jobs:
   integration-and-unit:
     name: Integration + Unit Tests
     runs-on: ubuntu-latest
+    env:
+      RAVEN_LICENSE: ${{ secrets.RAVEN_LICENSE }}
     strategy:
       matrix:
         include:
