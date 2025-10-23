@@ -56,7 +56,7 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
 - Per-index configuration reconciliation via `index_configuration` in `ravendb.ravendb.index`.
 - New `ravendb.ravendb.connection_string` module:
   - Providers: `RAVEN`, `SQL`, `OLAP`, `ELASTIC_SEARCH`, `QUEUE` (Kafka, RabbitMQ, AzureQueueStorage, AmazonSQS), `SNOWFLAKE`, `AI`.
-  - Secrets may be inline or loaded from files via the explicit prefix: use C(file:///abs/path).Without the C(file://) prefix, values are treated literally.
+  - All secrets parameters are treated as literal strings, If you need to load a secret from disk or the environment, use Ansible lookups.
   - Check mode support for connection strings.
 
 ### Changed

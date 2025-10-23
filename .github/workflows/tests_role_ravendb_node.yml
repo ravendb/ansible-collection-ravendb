@@ -122,6 +122,14 @@ jobs:
       - name: Set ansible roles path
         run: echo "ANSIBLE_ROLES_PATH=$GITHUB_WORKSPACE/roles" >> $GITHUB_ENV
 
+      - name: Write license to a temp file
+        shell: bash
+        run: |
+          LICENSE_FILE="/tmp/license.json"
+          printf '%s' "$RAVEN_LICENSE" > "$LICENSE_FILE"
+          chmod 600 "$LICENSE_FILE"
+          echo "RAVEN_LICENSE_FILE=$LICENSE_FILE" >> "$GITHUB_ENV"
+  
       - name: Run Debian unsecured scenario
         working-directory: roles/ravendb_node
         run: molecule test -s unsecured
@@ -167,10 +175,9 @@ jobs:
         working-directory: roles/ravendb_node
         run: molecule test -s plugins-unsecured
 
-      # todo: enable once we put a license file in the repo
-      # - name: Run modules scenarios nodes
-      #   working-directory: roles/ravendb_node
-      #   run: molecule test -s plugins-unsecured-nodes
+      - name: Run modules scenarios nodes
+        working-directory: roles/ravendb_node
+        run: molecule test -s plugins-unsecured-nodes
 
       - name: Set up .NET environment variables
         run: |

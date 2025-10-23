@@ -2,10 +2,17 @@
 - name: Verify
   hosts: localhost
   gather_facts: false
-  # vars:
-  #   ravendb_venv_path: "/root/.ravendb_ansible"
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
   tasks:
+    - name: Install RavenDB Python client prerequisites
+      include_role:
+        name: ravendb.ravendb.ravendb_python_client_prerequisites
+  
+    - name: Reset SSH connection to pick up interpreter
+      ansible.builtin.meta: reset_connection
+
     - import_tasks: tasks/init.yml
       tags: [always]
 

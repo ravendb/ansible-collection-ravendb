@@ -11,8 +11,7 @@
         ravendb_version_minor: 7.1
         ravendb_release_channel: stable
         ravendb_arch: linux-x64
-        # todo: enable license file for paid features testing
-        #ravendb_license_file: "license.json"
+        ravendb_license_file: "/tmp/license.json"
         ravendb_settings_preset: default
         ravendb_settings_override:
           Security.UnsecuredAccessAllowed: PublicNetwork

@@ -168,11 +168,10 @@
       authentication:
         certificate:
           certificates_base64:
-            - "file:///tmp/client.pfx.b64"
+            - "{{ lookup('ansible.builtin.file', '/tmp/client.pfx.b64') | trim }}"
     state: present
   register: elastic_cert_created
-
-
+  no_log: true
 
 - name: Assert all Elastic CS created
   ansible.builtin.assert:

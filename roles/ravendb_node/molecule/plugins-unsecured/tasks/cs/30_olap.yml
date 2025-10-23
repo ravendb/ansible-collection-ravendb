@@ -127,7 +127,7 @@
     content: "AKIA_DUMMY_ACCESS_KEY"
     mode: '0600'
 
-- name: OLAP S3 CS (key from file)
+- name: OLAP S3 CS (key from file via lookup)
   ravendb.ravendb.connection_string:
     url: "{{ base_url }}"
     database_name: "{{ db_cs }}"
@@ -139,10 +139,11 @@
         aws_region_name: "us-east-1"
         bucket_name: "my-bucket"
         remote_folder_name: "olap/"
-        aws_access_key: "file:///tmp/aws_access_key.txt"
-        aws_secret_key: "SECRET..."
+        aws_access_key: "{{ lookup('ansible.builtin.file', '/tmp/aws_access_key.txt') | trim }}"
+        aws_secret_key: "{{ lookup('ansible.builtin.env', 'AWS_SECRET_ACCESS_KEY') | default('SECRET...', true) }}"
     state: present
   register: olap_s3_from_file_created
+  no_log: true
 
 - name: OLAP S3 CS custom host
   ravendb.ravendb.connection_string:
