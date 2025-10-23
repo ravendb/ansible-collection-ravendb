@@ -41,9 +41,7 @@ def read_secret(value_or_path):
     if value_or_path is None:
         return None
 
-    s = str(value_or_path).strip()
-    prefix = "file://"
-    if s.startswith(prefix):
-        return read_key(s[len(prefix):])
+    if isinstance(value_or_path, str) and os.path.isfile(value_or_path):
+        return read_key(value_or_path)
 
-    return s
+    return str(value_or_path).strip()

@@ -25,7 +25,6 @@
       import_tasks: tasks/index.yml
       tags: [index]
 
-    # todo: uncomment once we will have license to test with
-    # - name: Connection String suite
-    #   import_tasks: tasks/cs.yml
-    #   tags: [cs]
+    - name: Connection String suite
+      import_tasks: tasks/cs.yml
+      tags: [cs]
