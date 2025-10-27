@@ -2,30 +2,32 @@ dependency:
   name: galaxy
 driver:
   name: docker
-  port_bindings:
-    '8080': 80
-    '38888': 38888
-    '44443': 443
+
 platforms:
-  - name: ubuntu-bionic
-    image: 'jrei/systemd-ubuntu:22.04'
+  - name: a.rdbansibleci.ravendb.run
+    hostname: a.rdbansibleci.ravendb.run
+    image: 'docker.io/geerlingguy/docker-ubuntu2204-ansible:latest'
     privileged: true
+    command: /usr/sbin/init
     volumes:
       - '/sys/fs/cgroup:/sys/fs/cgroup:rw'
     tmpfs:
       - /run
       - /tmp
-    command: /lib/systemd/systemd
-lint: |
-  set -e
-  yamllint .
-  ansible-lint
+    cgroupns_mode: host
+    published_ports:
+      - "4443:4443/tcp"
+      - "38888:38888/tcp"
+    networks:
+      - name: ravendbnet
+        ipv4_address: 172.22.0.2
+
 provisioner:
   name: ansible
   log: true
   inventory:
     host_vars:
-      ubuntu-bionic:
+      a.rdbansibleci.ravendb.run:
         node_tag: "A"
 scenario:
   name: secured
