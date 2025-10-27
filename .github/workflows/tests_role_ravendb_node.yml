@@ -55,6 +55,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RAVEN_LICENSE: ${{ secrets.RAVEN_LICENSE }}
+      A_SETTINGS_JSON: ${{ secrets.A_SETTINGS_JSON }}
+      B_SETTINGS_JSON: ${{ secrets.B_SETTINGS_JSON }}
+      C_SETTINGS_JSON: ${{ secrets.C_SETTINGS_JSON }}
+      A_PFX_B64: ${{ secrets.A_PFX_B64 }}
+      B_PFX_B64: ${{ secrets.B_PFX_B64 }}
+      C_PFX_B64: ${{ secrets.C_PFX_B64 }}
+      ADMIN_PFX_B64: ${{ secrets.ADMIN_PFX_B64 }}
+      ADMIN_CLIENT_CERTIFICATE_RDBANSIBLE_CRT: ${{ secrets.ADMIN_CLIENT_CERTIFICATE_RDBANSIBLE_CRT }}
+      ADMIN_CLIENT_CERTIFICATE_RDBANSIBLE_KEY: ${{ secrets.ADMIN_CLIENT_CERTIFICATE_RDBANSIBLE_KEY }}
     strategy:
       matrix:
         include:
@@ -131,6 +140,24 @@ jobs:
           printf '%s' "$RAVEN_LICENSE" > "$LICENSE_FILE"
           chmod 600 "$LICENSE_FILE"
           echo "RAVEN_LICENSE_FILE=$LICENSE_FILE" >> "$GITHUB_ENV"
+
+      - name: Rebuild setup_package.zip
+        shell: bash
+        run: |
+          mkdir -p setup_package/{A,B,C}
+          printf '%s' "$A_SETTINGS_JSON" > setup_package/A/settings.json
+          printf '%s' "$B_SETTINGS_JSON" > setup_package/B/settings.json
+          printf '%s' "$C_SETTINGS_JSON" > setup_package/C/settings.json
+          printf '%s' "$A_PFX_B64" | base64 -d > setup_package/A/cluster.server.certificate.rdbansibleci.pfx
+          printf '%s' "$B_PFX_B64" | base64 -d > setup_package/B/cluster.server.certificate.rdbansibleci.pfx
+          printf '%s' "$C_PFX_B64" | base64 -d > setup_package/C/cluster.server.certificate.rdbansibleci.pfx
+          printf '%s' "$ADMIN_PFX_B64" | base64 -d > setup_package/admin.client.certificate.rdbansibleci.pfx
+          printf '%s' "$ADMIN_CLIENT_CERTIFICATE_RDBANSIBLE_CRT" > setup_package/admin.client.certificate.rdbansibleci.crt
+          printf '%s' "$ADMIN_CLIENT_CERTIFICATE_RDBANSIBLE_KEY" > setup_package/admin.client.certificate.rdbansibleci.key
+
+          (cd setup_package && zip -r /tmp/setup_package.zip .)
+          chmod 600 /tmp/setup_package.zip
+
       - name: Run Debian unsecured scenario
         working-directory: roles/ravendb_node
         run: molecule test -s unsecured
@@ -166,6 +193,20 @@ jobs:
       - name: Run RHEL cleanup scenario
         working-directory: roles/ravendb_node
         run: molecule test -s cleanup-rhel
+
+      - name: create dedicated docker network for secured scenario
+        run: |
+          docker network rm ravendbnet || true
+          docker network create --driver bridge --subnet 172.22.0.0/24 --gateway 172.22.0.1 ravendbnet
+
+      - name: Run Debian secured scenario
+        working-directory: roles/ravendb_node
+        run: molecule test -s secured
+
+      - name: remove dedicated docker network for secured scenario
+        if: always()
+        run: |
+          docker network rm ravendbnet || true
 
       - name: Build ansible galaxy collection
         run: |
