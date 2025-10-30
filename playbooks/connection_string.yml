@@ -14,8 +14,8 @@
 #       * state: present → creates when absent; if item already exists, it is left unchanged (no in-place updates)
 #       * state: absent  → deletes when present
 #   - Secret handling in properties:
-#       * Use `file:///abs/path` to load a secret from a controller-side file (e.g., keys, tokens)
-#       * Without the `file://` prefix, the value is taken literally
+#       * Secrets (e.g., keys, tokens) may be inline or loaded from files.
+#       * Use Ansible lookups to load a secret from a controller-side file (see examples below).
 #   - All snippets here support check mode can be run with `check_mode: yes`
 #
 # See the module documentation for more details: plugins/modules/connection_string.py
@@ -85,7 +85,7 @@
   register: sql_created
 
 # -----------------------------------------------------------------------------------------------
-# OLAP CS - Local & S3 variants (incl. file:// secrets)
+# OLAP CS - Local & S3 variants (incl. loading secrets from controller-side files)
 # -----------------------------------------------------------------------------------------------
 
 - name: Create OLAP (Local) connection string
@@ -128,7 +128,7 @@
         aws_region_name: "us-east-1"
         bucket_name: "my-bucket"
         remote_folder_name: "olap/"
-        aws_access_key: "file:///tmp/aws_access_key.txt"
+        aws_access_key: "{{ lookup('ansible.builtin.file', '/tmp/aws_access_key.txt') | trim }}"
         aws_secret_key: "SECRET..."
     state: present
 
@@ -395,7 +395,7 @@
       authentication:
         certificate:
           certificates_base64:
-            - "file:///tmp/client.pfx.b64"
+            - "{{ lookup('ansible.builtin.file', '/tmp/client.pfx.b64') | trim }}"
     state: present
 
 - name: Delete Elastic CS
