@@ -7,21 +7,30 @@
 #   - Installs OS prerequisites (apt/yum)
 #   - Detects distro/arch and downloads RavenDB (Ubuntu: DEB; others: tarball)
 #   - Creates ravendb user/group and required directories
+#   - Requires explicit PublicServerUrl and PublicServerUrl.Tcp per node.
+#     These must be provided in the inventory (or host_vars) using:
+#         ravendb_self_signed_public_server_url
+#         ravendb_self_signed_public_server_url_tcp
+#     The role does not construct hostnames automatically. Any valid domain and naming scheme is supported.
 #   - Copies your provided server PFX + CA cert/key to the host
+#   - Installs CA certificate into system trust store
 #   - extracts cert/key, fixes permissions, installs CA into system trust
 #   - Installs license file
 #   - Installs/updates binaries, writes systemd unit, sets CAP_NET_BIND_SERVICE
 #   - Starts/enables the ravendb systemd service
 #
+# Required Inputs:
+# Files can be given as full paths or placed under the role's files/ directory and referenced by name.
+#   - node_tag (per host, defined in inventory)
+#   - ravendb_domain (base domain for public URLs)
+#   - ravendb_certificate_file        -> server PFX
+#   - ravendb_ca_certificate_file     -> CA public certificate (crt)
+#   - ravendb_ca_key_file             -> CA private key
+#
 # Notes:
-#   - Provide the path to the ZIP via 'ravendb_setup_package'
-#       * ravendb_certificate_file   -> server PFX (e.g., server.pfx)
-#       * ravendb_ca_certificate_file -> CA PEM (public)
-#       * ravendb_ca_key_file         -> CA private key (only if your flow needs it on node)
-#   - The role **does not generate** certificates; it only installs what you supply.
-#   - This playbook does not register client certs back on the controller for you; handle
-#     client certificate distribution/registration separately.
-#   - This is for self-signed-secured installs only. for LE-secured setup please refer to:  playbooks/setup_ravendb_secured.yml
+#   - The role does NOT generate server certificates; it installs what you supply.
+#   - This playbook is for self-signed-secured installs only.
+#   - For Let's Encrypt-secured setup refer to: playbooks/setup_ravendb_secured.yml
 #################################################################################################
 
 - name: Install/Upgrade RavenDB (Self-signed - secured)
@@ -31,11 +40,11 @@
     - role: ravendb.ravendb.ravendb_node
       vars:
         ravendb_state: present
+        ravendb_version_minor: 6.2
+        ravendb_version: latest
         ravendb_secured_self_signed_enabled: true
         ravendb_certificate_file: "/home/user/server.pfx"
-        ravendb_certificate_password: "raven"     # just for demo puposes - use Ansible vault
-        ravendb_ca_certificate_file: "/home/user/ca_cert.pem"
-        ravendb_ca_key_file: "/home/user/ca_key.pem"
+        ravendb_ca_certificate_file: "/home/user/ca.crt"
+        ravendb_ca_key_file: "/home/user/ca.key"
         ravendb_license_file: "/home/user/license.json"
-        ravendb_hostname: "{{ ansible_host }}"
         ravendb_settings_preset: default
