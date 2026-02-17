@@ -17,6 +17,5 @@
         ravendb_secured_self_signed_enabled: true
         ravendb_license_file: "license.json"
         ravendb_certificate_file: "server.pfx"
-        ravendb_certificate_password: "raven"
-        ravendb_ca_certificate_file: "ca_cert.pem"
-        ravendb_ca_key_file: "ca_key.pem"
+        ravendb_ca_certificate_file: "ca.crt"
+        ravendb_ca_key_file: "ca.key"

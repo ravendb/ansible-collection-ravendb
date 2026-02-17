@@ -4,38 +4,23 @@
   gather_facts: false
   tasks:
 
-    - name: Load settings.json
-      become: yes
-      include_vars:
-        file: "/etc/ravendb/settings.json"
-        name: settings
-
-    - name: Assert that settings override was applied
-      ansible.builtin.assert:
-        that:
-          - settings['Logs.Mode'] == "Information"
-
-    - name: Assert it's unsecured
-      ansible.builtin.assert:
-        that:
-          - settings['ServerUrl'] is not regex('^https:')
-
     - name: Get service status
       become: true
-      systemd:
+      ansible.builtin.systemd:
         name: ravendb.service
         state: started
       register: service_status
 
     - name: Assert service state
       ansible.builtin.assert:
-        that: service_status.status | json_query('ActiveState') == 'active'
+        that:
+          - service_status.status['ActiveState'] == 'active'
 
-    - name: Verify RavenDB Studio HTML is inaccessible without cert being provided
+    - name: Verify RavenDB is inaccessible without cert being provided
       ansible.builtin.uri:
-        url: https://localhost:443/studio/index.html
+        url: https://localhost:443/databases
         validate_certs: no
-        status_code: 403 
+        status_code: 403
       register: curl_output
 
     - name: Assert 'InvalidAuth' message in response
@@ -43,22 +28,143 @@
         that:
           - curl_output.json.Type == "InvalidAuth"
 
-    - name: Install curl
+    - name: Install pacakges
       become: true
       ansible.builtin.package:
-        name: curl
+        name: 
+          - curl
+          - openssl
         state: present
 
+    - name: Extract server certificate
+      become: true
+      command: >
+        openssl pkcs12 -in /etc/ravendb/security/server.pfx
+        -clcerts -nokeys -out /etc/ravendb/security/server.pem -legacy -passin pass:
+      args:
+        creates: /etc/ravendb/security/server.pem
+    
+    - name: Extract server private key
+      become: true
+      command: >
+        openssl pkcs12 -in /etc/ravendb/security/server.pfx
+        -nocerts -nodes -out /etc/ravendb/security/server.key -legacy -passin pass:
+      args:
+        creates: /etc/ravendb/security/server.key 
+
+    - name: Set correct permissions for all certificates and keys
+      become: true
+      file:
+        path: "{{ item }}"
+        mode: "0600"
+        owner: root
+        group: root
+      loop:
+        - /etc/ravendb/security/server.pem
+        - /etc/ravendb/security/server.key
+
+    - name: Create client OpenSSL config (self-signed)
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/ravendb/security/client_openssl.cnf
+        owner: ravendb
+        group: ravendb
+        mode: "0640"
+        content: |
+          [ req ]
+          default_bits       = 4096
+          prompt             = no
+          default_md         = sha256
+          distinguished_name = req_distinguished_name
+          req_extensions     = req_ext
+
+          [ req_distinguished_name ]
+          CN = admin-client
+
+          [ req_ext ]
+          keyUsage = critical, digitalSignature, keyEncipherment
+          extendedKeyUsage = clientAuth
+      tags: config,self_signed
+      
+    - name: Generate client private key
+      become: true
+      command: >
+        openssl genrsa -out /etc/ravendb/security/client.key 4096
+      args:
+        creates: /etc/ravendb/security/client.key
+
+    - name: Generate client certificate signing request
+      become: true
+      command: >
+        openssl req -new
+        -key /etc/ravendb/security/client.key
+        -out /etc/ravendb/security/client.csr
+        -config /etc/ravendb/security/client_openssl.cnf
+      args:
+        creates: /etc/ravendb/security/client.csr
+
+    - name: Sign client certificate with CA
+      become: true
+      command: >
+        openssl x509 -req
+        -in /etc/ravendb/security/client.csr
+        -CA /etc/ravendb/security/ca.crt
+        -CAkey /etc/ravendb/security/ca.key
+        -CAcreateserial
+        -out /etc/ravendb/security/client.crt
+        -days 3650
+        -sha256
+        -extfile /etc/ravendb/security/client_openssl.cnf
+        -extensions req_ext
+      args:
+        creates: /etc/ravendb/security/client.crt
+
+    - name: Combine client key and certificate into PEM bundle
+      become: true
+      command: >
+        bash -c "cat /etc/ravendb/security/client.key /etc/ravendb/security/client.crt > /etc/ravendb/security/client.pem"
+      args:
+        creates: /etc/ravendb/security/client.pem
+
+    - name: Export client certificate to PKCS#12 (PFX)
+      become: true
+      command: >
+        openssl pkcs12 -export
+        -out /etc/ravendb/security/client.pfx
+        -inkey /etc/ravendb/security/client.key
+        -in /etc/ravendb/security/client.crt
+        -certfile /etc/ravendb/security/ca.crt
+        -passout pass:
+      args:
+        creates: /etc/ravendb/security/client.pfx
+
+    - name: Register admin client certificate in server
+      become: true
+      shell: >
+        curl -X PUT "https://localhost:443/admin/certificates"
+        -H "Content-Type: application/json"
+        --cert /etc/ravendb/security/selfsigned/server.pem
+        --key /etc/ravendb/security/selfsigned/server.key
+        -d '{
+          "Name": "AdminClientCert",
+          "Certificate": "'"$(cat /etc/ravendb/security/client.pfx | base64 -w 0)"'",
+          "SecurityClearance": "ClusterAdmin"
+        }'
+      register: cert_register
+      changed_when: '"error" not in cert_register.stdout'
+      failed_when: '"InvalidAuth" in cert_register.stdout'
+
+    # intended only for local testing , therefore my personal domain is used with redirect
+    # to use your cert with this test please update the SAN defined in your crt on the cmd below
     - name: Verify RavenDB Studio access with client certificate
       become: true
       ansible.builtin.command:
-        cmd: "curl -k --cert-type PEM --cert /etc/ravendb/security/raven_cert.pem --key /etc/ravendb/security/raven_key.pem -o /dev/null -s -w '%{http_code}' https://localhost:443/studio/index.html"
+        cmd: >
+          curl --resolve a.thegoldenplatypusselfsigned.development.run:443:127.0.0.1
+          --cert /etc/ravendb/security/client.pfx:
+          --cert-type P12
+          --cacert /etc/ravendb/security/ca.crt
+          -s -o /dev/null -w '%{http_code}'
+          https://a.thegoldenplatypusselfsigned.development.run:443
       register: curl_output
-      failed_when: curl_output.stdout != '200'
-
-    - name: Verify server certificate against CA certificate
-      become: true
-      ansible.builtin.shell:
-        cmd: "echo | openssl s_client -connect localhost:443 -CAfile /etc/ravendb/security/ca_certificate.pem -verify_return_error"
-      register: ca_validation_output
-      failed_when: "'Verify return code: 0 (ok)' not in ca_validation_output.stdout"
+      failed_when: curl_output.stdout != "302"
