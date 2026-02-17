@@ -129,7 +129,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install "ansible-core@https://github.com/ansible/ansible/archive/${{ matrix.ansible-core }}.tar.gz"
           pip install molecule molecule-plugins[docker] docker ravendb_test_driver
-          ansible-galaxy collection install community.docker ansible.posix community.general
+          ansible-galaxy collection install --force ansible.posix:==1.6.2 community.docker:==3.13.3 community.general:==9.5.2
       
       - name: Set ansible roles path
         run: echo "ANSIBLE_ROLES_PATH=$GITHUB_WORKSPACE/roles" >> $GITHUB_ENV
