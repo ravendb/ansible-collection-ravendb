@@ -22,7 +22,6 @@
 # Required Inputs:
 # Files can be given as full paths or placed under the role's files/ directory and referenced by name.
 #   - node_tag (per host, defined in inventory)
-#   - ravendb_domain (base domain for public URLs)
 #   - ravendb_certificate_file        -> server PFX
 #   - ravendb_ca_certificate_file     -> CA public certificate (crt)
 #   - ravendb_ca_key_file             -> CA private key
