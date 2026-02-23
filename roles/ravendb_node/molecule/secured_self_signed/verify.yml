@@ -154,17 +154,19 @@
       changed_when: '"error" not in cert_register.stdout'
       failed_when: '"InvalidAuth" in cert_register.stdout'
 
-    # intended only for local testing , therefore my personal domain is used with redirect
-    # to use your cert with this test please update the SAN defined in your crt on the cmd below
+    # This task is intended for local testing only.
+    # The hostname (a.test.local) is arbitrary and resolved to 127.0.0.1 via --resolve.
+    # If you are using a different certificate, make sure the hostname below
+    # matches one of the Subject Alternative Names (SAN) defined in your server certificate.
     - name: Verify RavenDB Studio access with client certificate
       become: true
       ansible.builtin.command:
         cmd: >
-          curl --resolve a.thegoldenplatypusselfsigned.development.run:443:127.0.0.1
+          curl --resolve a.test.local:443:127.0.0.1
           --cert /etc/ravendb/security/client.pfx:
           --cert-type P12
           --cacert /etc/ravendb/security/ca.crt
           -s -o /dev/null -w '%{http_code}'
-          https://a.thegoldenplatypusselfsigned.development.run:443
+          https://a.test.local:443
       register: curl_output
       failed_when: curl_output.stdout != "302"
