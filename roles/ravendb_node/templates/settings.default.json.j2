@@ -1,35 +1,37 @@
 {% set secured = ravendb_certificate_file is defined and ravendb_certificate_file and ravendb_certificate_file != "" %}
-{% set has_hostname = ravendb_hostname is defined and ravendb_hostname and ravendb_hostname != "" %}
 {% set has_license = ravendb_license_file is defined and ravendb_license_file and ravendb_license_file != "" %}
 {% set has_certificate_password = ravendb_certificate_password is defined and ravendb_certificate_password and ravendb_certificate_password != "" %}
 {% set ravendb_port = ravendb_https_port if secured else ravendb_http_port %}
 {% set http_scheme = "https" if secured else "http" %}
 
-{% set has_self_signed_public_https = ravendb_self_signed_public_hostname_https is defined and ravendb_self_signed_public_hostname_https and ravendb_self_signed_public_hostname_https != "" %}
-{% set has_self_signed_public_tcp  = ravendb_self_signed_public_hostname_tcp  is defined and ravendb_self_signed_public_hostname_tcp  and ravendb_self_signed_public_hostname_tcp  != "" %}
+{% set use_self_signed_urls = ravendb_secured_self_signed_enabled | default(false) %}
 
-{% if ravendb_secured_self_signed_enabled | default(false)
-      and ravendb_self_signed_public_server_url is defined
-      and ravendb_self_signed_public_server_url | length > 0 %}
-    "PublicServerUrl": "{{ ravendb_self_signed_public_server_url }}",
-{% endif %}
+{% set final_public_url =
+    ravendb_self_signed_public_server_url
+    if use_self_signed_urls
+       and ravendb_self_signed_public_server_url is defined
+       and ravendb_self_signed_public_server_url | length > 0
+    else public_url | default('')
+%}
 
-{% if ravendb_secured_self_signed_enabled | default(false)
-      and ravendb_self_signed_public_server_url_tcp is defined
-      and ravendb_self_signed_public_server_url_tcp | length > 0 %}
-    "PublicServerUrl.Tcp": "{{ ravendb_self_signed_public_server_url_tcp }}",
-{% endif %}
+{% set final_public_url_tcp =
+    ravendb_self_signed_public_server_url_tcp
+    if use_self_signed_urls
+       and ravendb_self_signed_public_server_url_tcp is defined
+       and ravendb_self_signed_public_server_url_tcp | length > 0
+    else public_url_tcp | default('')
+%}
 
 {
     "Setup.Mode": "{{ 'None' if ravendb_secured_self_signed_enabled else ('LetsEncrypt' if secured else 'None') }}",
     "ServerUrl": "{{ http_scheme }}://0.0.0.0:{{ ravendb_port }}",
     "ServerUrl.Tcp": "tcp://0.0.0.0:{{ ravendb_tcp_port }}",
 
-{% if public_url is defined %}
-    "PublicServerUrl": "{{ public_url }}",
+{% if final_public_url %}
+    "PublicServerUrl": "{{ final_public_url }}",
 {% endif %}
-{% if public_url_tcp is defined %}
-    "PublicServerUrl.Tcp": "{{ public_url_tcp }}",
+{% if final_public_url_tcp %}
+    "PublicServerUrl.Tcp": "{{ final_public_url_tcp }}",
 {% endif %}
 
     "Logs.Mode": "Operations",
@@ -37,9 +39,9 @@
 
 {% if secured %}
     "Security.Certificate.Path": "/etc/ravendb/security/server.pfx",
-    {% if has_certificate_password %}
+{% if has_certificate_password %}
     "Security.Certificate.Password": "{{ ravendb_certificate_password }}",
-    {% endif %}
+{% endif %}
 {% else %}
     "Security.UnsecuredAccessAllowed": "PublicNetwork",
 {% endif %}
