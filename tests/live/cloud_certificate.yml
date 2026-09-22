@@ -1,0 +1,270 @@
+---
+# Live test for ravendb.ravendb.cloud_certificate
+# Not run in CI. Drive manually against a sandbox / real RavenDB Cloud account.
+#
+# Self-contained: creates 1 Dev10 aws product for the cert tests, then terminates it.
+# Total runtime ~12-15 min (~10 min for product create+terminate, ~30s for cert tests).
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY  - API key with read+write access on the target account
+#   RAVEN_CLOUD_API_URL  - Optional; defaults to https://api.cloud.ravendb.net
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_certificate.yml -v
+#
+
+- name: Live test cloud_certificate
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+    dest: "/tmp/cloud_cert_test.pfx"
+
+  tasks:
+
+    # -------- init --------
+    - name: Randomize product identifiers
+      ansible.builtin.set_fact:
+        throwaway_name: "cert-test-{{ 100000000 | random }}"
+        throwaway_subdomain: "cert"
+
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that:
+          - api_key | length > 0
+        fail_msg: "RAVEN_CLOUD_API_KEY env var is not set."
+
+
+    - name: Ensure dest file is removed before test
+      ansible.builtin.file:
+        path: "{{ dest }}"
+        state: absent
+
+
+    # -------- 05_SETUP: create throwaway Dev10 aws product --------
+    - name: Discover aws instance_types in us-east-1
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: instance_types
+        cloud_provider: aws
+        region: "us-east-1"
+      register: aws_itypes
+
+    - name: Pick Free-tier instance
+      ansible.builtin.set_fact:
+        dev_instance: "{{ (aws_itypes.result.instanceTypes | selectattr('tier', 'equalto', 'Development') | list)[0] }}"
+
+    - name: Create throwaway product (waits until Active, ~5-8 min)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ throwaway_name }}"
+        subdomain: "{{ throwaway_subdomain }}"
+        cloud_provider: aws
+        region: "us-east-1"
+        tier: "Development"
+        instance_type: "{{ dev_instance.name }}"
+        release_channel: "Stable62"
+        disk_size: "{{ dev_instance.parameters.availableDiskSizes[0] }}"
+        storage_type: "{{ dev_instance.parameters.availableStorageTypes[0].name }}"
+        allowed_ips: ["192.0.2.1/32"]
+      register: throwaway_create
+
+    - name: Capture throwaway product_id
+      ansible.builtin.set_fact:
+        product_id: "{{ throwaway_create.product.id }}"
+
+
+    # -------- cert tests wrapped in block/always for guaranteed cleanup --------
+    - block:
+
+        # -------- 10_DOWNLOAD --------
+        - name: Download cert (first time, file absent -> should be created)
+          ravendb.ravendb.cloud_certificate:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            dest: "{{ dest }}"
+          register: first
+
+        - name: Assert first download created the file
+          ansible.builtin.assert:
+            that:
+              - first.changed
+              - first.dest == dest
+              - first.bytes_written > 0
+
+        - name: Stat the file
+          ansible.builtin.stat:
+            path: "{{ dest }}"
+          register: stat_after_first
+
+        - name: Assert file exists on disk with the reported size
+          ansible.builtin.assert:
+            that:
+              - stat_after_first.stat.exists
+              - stat_after_first.stat.size == first.bytes_written
+
+
+        # -------- 20_IDEMPOTENCY --------
+        - name: Re-run download (should be no-op if API returns same bytes)
+          ravendb.ravendb.cloud_certificate:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            dest: "{{ dest }}"
+          register: second
+
+        - name: Diagnostic - show idempotency result
+          ansible.builtin.debug:
+            msg:
+              second_changed: "{{ second.changed }}"
+              second_bytes_written: "{{ second.bytes_written }}"
+
+        - name: Assert second call was a no-op (implies API returned identical bytes)
+          ansible.builtin.assert:
+            that:
+              - not second.changed
+            fail_msg: "Second call reported changed=true - either API returned different bytes (non-deterministic cert), or local file got modified between calls. Module needs redesign for the API-non-deterministic case."
+
+
+        # -------- 30_DRIFT --------
+        - name: Corrupt the local file
+          ansible.builtin.copy:
+            dest: "{{ dest }}"
+            content: "tampered"
+            mode: "0600"
+
+        - name: Re-run download (file now differs -> should rewrite)
+          ravendb.ravendb.cloud_certificate:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            dest: "{{ dest }}"
+          register: rewritten
+
+        - name: Assert rewrite happened
+          ansible.builtin.assert:
+            that:
+              - rewritten.changed
+              - rewritten.bytes_written == first.bytes_written
+
+
+        # -------- 40_CHECK_MODE --------
+        - name: Corrupt the local file again
+          ansible.builtin.copy:
+            dest: "{{ dest }}"
+            content: "tampered-again"
+            mode: "0600"
+
+        - name: Run in check_mode (should predict change, must not write)
+          ravendb.ravendb.cloud_certificate:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            dest: "{{ dest }}"
+          check_mode: yes
+          register: check_res
+
+        - name: Assert check_mode predicted change
+          ansible.builtin.assert:
+            that:
+              - check_res.changed
+
+        - name: Read file content after check_mode
+          ansible.builtin.slurp:
+            src: "{{ dest }}"
+          register: post_check_content
+
+        - name: Assert file still tampered (check_mode did not write)
+          ansible.builtin.assert:
+            that:
+              - (post_check_content.content | b64decode) == "tampered-again"
+
+
+        # -------- 50_ERRORS --------
+        - name: Invalid api_url
+          ravendb.ravendb.cloud_certificate:
+            api_key: "{{ api_key }}"
+            api_url: "not-a-url"
+            product_id: "{{ product_id }}"
+            dest: "{{ dest }}"
+          register: bad_url
+          ignore_errors: true
+
+        - name: Assert invalid api_url rejected
+          ansible.builtin.assert:
+            that:
+              - bad_url is failed
+              - "'invalid api_url' in (bad_url.msg | lower)"
+
+        - name: Empty api_key
+          ravendb.ravendb.cloud_certificate:
+            api_key: ""
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            dest: "{{ dest }}"
+          register: bad_key
+          ignore_errors: true
+
+        - name: Assert empty api_key rejected
+          ansible.builtin.assert:
+            that:
+              - bad_key is failed
+              - "'api_key' in (bad_key.msg | lower)"
+
+        - name: Missing required dest arg
+          ravendb.ravendb.cloud_certificate:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+          register: missing_dest
+          ignore_errors: true
+
+        - name: Assert missing dest rejected
+          ansible.builtin.assert:
+            that: [missing_dest is failed]
+
+        - name: Missing required product_id arg
+          ravendb.ravendb.cloud_certificate:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            dest: "{{ dest }}"
+          register: missing_pid
+          ignore_errors: true
+
+        - name: Assert missing product_id rejected
+          ansible.builtin.assert:
+            that: [missing_pid is failed]
+
+        - name: Non-existent product_id (API should 404, module should fail)
+          ravendb.ravendb.cloud_certificate:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "does-not-exist-{{ 1000000 | random }}"
+            dest: "/tmp/should_not_exist_{{ 1000000 | random }}.pfx"
+          register: bad_pid
+          ignore_errors: true
+
+        - name: Assert non-existent product_id failed
+          ansible.builtin.assert:
+            that:
+              - bad_pid is failed
+              - "'failed to download' in (bad_pid.msg | lower)"
+
+      always:
+
+        # -------- 99_CLEANUP: terminate throwaway product no matter what --------
+        - name: Terminate throwaway product
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: absent
+            product_id: "{{ product_id }}"
+            confirm_destroy: true
+            hide_in_portal: true
+          when: product_id is defined

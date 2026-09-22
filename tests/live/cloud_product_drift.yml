@@ -1,0 +1,458 @@
+---
+# Live test for ravendb.ravendb.cloud_product drift reconciliation (AWS, Development tier).
+# Not run in CI. Drive manually against a sandbox / real RavenDB Cloud account.
+#
+# WARNING: Creates a Development-tier product (billed), exercises all mutable/immutable/no-endpoint
+# drift branches, then terminates. Runtime ~30-60 min due to DeployingChanges waits.
+# Always run against a sandbox/dev account, not production.
+#
+# Provider: AWS (drift logic is provider-agnostic; running on all 3 would triple runtime for no
+# extra signal). If you need to prove per-provider drift, run this file once per provider by
+# overriding `provider` on the CLI: -e provider=azure
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY
+#   RAVEN_CLOUD_API_URL  (optional; defaults to https://api.cloud.ravendb.net)
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_product_drift.yml -v
+#
+
+- name: Live test cloud_product drift
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+    provider: aws
+    sfx: "{{ 1000000 | random }}"
+
+  tasks:
+
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that: [api_key | length > 0]
+        fail_msg: "RAVEN_CLOUD_API_KEY env var must be set."
+
+    - name: Set product name
+      ansible.builtin.set_fact:
+        product_name: "ansible-live-drift-{{ provider }}-{{ sfx }}"
+        subdomain: "drft"
+
+    - name: Show test product name (for manual cleanup if interrupted)
+      ansible.builtin.debug:
+        msg: "product_name: {{ product_name }}"
+
+
+    # -------- 10_DISCOVER (Dev-tier instance pair for drift) --------
+    - name: Discover regions
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: regions
+        cloud_provider: "{{ provider }}"
+      register: regions_result
+
+    - name: Pick first region
+      ansible.builtin.set_fact:
+        region: "us-east-1"
+
+    - name: Discover instance types
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: instance_types
+        cloud_provider: "{{ provider }}"
+        region: "{{ region }}"
+      register: itypes_result
+
+    - name: Collect Development-tier instances
+      ansible.builtin.set_fact:
+        dev_instances: "{{ itypes_result.result.instanceTypes | selectattr('tier', 'equalto', 'Development') | list }}"
+
+    - name: Assert we found at least two Dev-tier instances (for drift target)
+      ansible.builtin.assert:
+        that: [dev_instances | length >= 2]
+        fail_msg: "Need at least 2 Development-tier instances for drift test. Found: {{ dev_instances | map(attribute='name') | list }}"
+
+    - name: Pick starting + drift-target Dev instances
+      ansible.builtin.set_fact:
+        start_instance: "{{ dev_instances[0] }}"
+        target_instance: "{{ dev_instances[1] }}"
+
+    - name: Extract create params from start instance
+      ansible.builtin.set_fact:
+        instance_type: "{{ start_instance.name }}"
+        target_instance_type: "{{ target_instance.name }}"
+        storage_types_available: "{{ start_instance.parameters.availableStorageTypes | default([{'name': 'SsdStandard'}]) }}"
+        disk_sizes_available: "{{ start_instance.parameters.availableDiskSizes | default([10, 20]) }}"
+
+    - name: Pick storage_type + starting disk_size + target disk_size
+      ansible.builtin.set_fact:
+        storage_type: "{{ storage_types_available[0].name }}"
+        target_storage_type: "{{ (storage_types_available[1] | default(storage_types_available[0])).name }}"
+        disk_size: "{{ (disk_sizes_available[0]) | int }}"
+        target_disk_size: "{{ (disk_sizes_available[1] | default(disk_sizes_available[0] | int + 10)) | int }}"
+
+    - name: Discover release channels
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: release_channels
+      register: rc_result
+
+    - name: Pick first release channel
+      ansible.builtin.set_fact:
+        channels: "{{ (rc_result.result.releaseChannels | default(rc_result.result)) }}"
+        release_channel: "{{ (rc_result.result.releaseChannels | default(rc_result.result))[0].name | default('stable') }}"
+
+    - name: Pick a DIFFERENT release channel for no-endpoint drift test (if 2+ exist)
+      ansible.builtin.set_fact:
+        other_release_channel: "{{ (channels[1] | default(channels[0])).name }}"
+
+    - name: Show discovered drift params
+      ansible.builtin.debug:
+        msg:
+          start_instance: "{{ instance_type }}"
+          target_instance: "{{ target_instance_type }}"
+          storage_type: "{{ storage_type }}"
+          target_storage_type: "{{ target_storage_type }}"
+          disk_size: "{{ disk_size }}"
+          target_disk_size: "{{ target_disk_size }}"
+          release_channel: "{{ release_channel }}"
+          other_release_channel: "{{ other_release_channel }}"
+
+
+    # -------- 20_CREATE_DEV_PRODUCT --------
+    - name: Create Development-tier product
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ product_name }}"
+        subdomain: "{{ subdomain }}"
+        cloud_provider: "{{ provider }}"
+        instance_type: "{{ instance_type }}"
+        region: "{{ region }}"
+        release_channel: "{{ release_channel }}"
+        disk_size: "{{ disk_size }}"
+        storage_type: "{{ storage_type }}"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+        wait_timeout: 1800
+      register: created
+
+    - name: Assert create
+      ansible.builtin.assert:
+        that:
+          - created.changed
+          - created.product.status == "Active"
+          - created.product.id | length > 0
+
+    - name: Capture product id + baseline storage
+      ansible.builtin.set_fact:
+        product_id: "{{ created.product.id }}"
+        baseline_storage: "{{ created.product.hardwareInfo.storage }}"
+        baseline_instance: "{{ created.product.instanceType }}"
+
+
+    # -------- drift tests wrapped in block/always for guaranteed cleanup --------
+    - block:
+
+        # -------- 30_STORAGE_INCOMPLETE (API-side validation) --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Storage drift with only iops set (API should reject the incomplete payload)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            iops: 5000
+          register: storage_incomplete
+          ignore_errors: true
+    
+        - name: Assert storage-incomplete rejected (by API, not by module)
+          ansible.builtin.assert:
+            that:
+              - storage_incomplete is failed
+    
+    
+        # -------- 40_STORAGE_DRIFT_CHECK_MODE --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Storage drift check_mode (predict, no write)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            disk_size: "{{ target_disk_size }}"
+            storage_type: "{{ storage_type }}"
+          check_mode: yes
+          register: storage_drift_check
+    
+        - name: Assert storage drift predicted in check_mode
+          ansible.builtin.assert:
+            that:
+              - storage_drift_check.changed
+              - "'would change' in storage_drift_check.msg | lower"
+    
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+
+        - name: Verify storage NOT changed after check_mode
+          ansible.builtin.uri:
+            url: "{{ api_url }}/api/v1/products/details/{{ product_id }}"
+            headers: {X-Api-Key: "{{ api_key }}"}
+          register: after_storage_check
+    
+        - name: Assert storage size unchanged
+          ansible.builtin.assert:
+            that:
+              - after_storage_check.json.hardwareInfo.storage.size == (baseline_storage.size | int)
+    
+    
+        # -------- 50_STORAGE_DRIFT_REAL --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Storage drift real (change disk_size)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            disk_size: "{{ target_disk_size }}"
+            storage_type: "{{ storage_type }}"
+            wait_timeout: 1800
+          register: storage_drift_real
+    
+        - name: Assert storage drift applied
+          ansible.builtin.assert:
+            that:
+              - storage_drift_real.changed
+              - "'storage' in (storage_drift_real.msg | lower)"
+              - storage_drift_real.product.status == "Active"
+              - storage_drift_real.product.hardwareInfo.storage.size == (target_disk_size | int)
+    
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Re-run storage drift (idempotent)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            disk_size: "{{ target_disk_size }}"
+            storage_type: "{{ storage_type }}"
+          register: storage_drift_again
+    
+        - name: Assert storage idempotent
+          ansible.builtin.assert:
+            that:
+              - not storage_drift_again.changed
+              - "'no drift' in storage_drift_again.msg | lower"
+    
+    
+        # -------- 60_INSTANCE_TYPE_DRIFT_CHECK_MODE --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Instance type drift check_mode
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            instance_type: "{{ target_instance_type }}"
+          check_mode: yes
+          register: itype_drift_check
+    
+        - name: Assert instance_type drift predicted
+          ansible.builtin.assert:
+            that:
+              - itype_drift_check.changed
+              - "'would change' in itype_drift_check.msg | lower"
+    
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+
+        - name: Verify instance_type NOT changed after check_mode
+          ansible.builtin.uri:
+            url: "{{ api_url }}/api/v1/products/details/{{ product_id }}"
+            headers: {X-Api-Key: "{{ api_key }}"}
+          register: after_itype_check
+    
+        - name: Assert instance_type unchanged
+          ansible.builtin.assert:
+            that: [after_itype_check.json.instanceType == baseline_instance]
+    
+    
+        # -------- 70_INSTANCE_TYPE_DRIFT_REAL --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Instance type drift real
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            instance_type: "{{ target_instance_type }}"
+            wait_timeout: 1800
+          register: itype_drift_real
+    
+        - name: Assert instance_type drift applied
+          ansible.builtin.assert:
+            that:
+              - itype_drift_real.changed
+              - "'instance_type' in (itype_drift_real.msg | lower)"
+              - itype_drift_real.product.status == "Active"
+              - itype_drift_real.product.instanceType == target_instance_type
+    
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Re-run instance_type drift (idempotent)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            instance_type: "{{ target_instance_type }}"
+          register: itype_drift_again
+    
+        - name: Assert instance_type idempotent
+          ansible.builtin.assert:
+            that:
+              - not itype_drift_again.changed
+              - "'no drift' in itype_drift_again.msg | lower"
+    
+    
+        # -------- 80_IMMUTABLE_REJECTION --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Try to change region (immutable, must fail loud)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            region: "eu-west-1"
+          register: change_region
+          ignore_errors: true
+    
+        - name: Assert region change rejected
+          ansible.builtin.assert:
+            that:
+              - change_region is failed
+              - "'immutable' in (change_region.msg | lower)"
+    
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Try to change tier (immutable, must fail loud)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            tier: "Production"
+          register: change_tier
+          ignore_errors: true
+    
+        - name: Assert tier change rejected
+          ansible.builtin.assert:
+            that:
+              - change_tier is failed
+              - "'immutable' in (change_tier.msg | lower)"
+    
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Try to change cloud_provider (immutable, must fail loud)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            cloud_provider: azure
+          register: change_provider
+          ignore_errors: true
+    
+        - name: Assert cloud_provider change rejected
+          ansible.builtin.assert:
+            that:
+              - change_provider is failed
+              - "'immutable' in (change_provider.msg | lower)"
+    
+    
+        # -------- 90_NO_ENDPOINT_REJECTION --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Try to change release_channel (no endpoint, must fail loud)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            release_channel: "{{ other_release_channel }}"
+          register: change_channel
+          ignore_errors: true
+          when: other_release_channel != release_channel
+    
+        - name: Assert release_channel change rejected (if two channels available)
+          ansible.builtin.assert:
+            that:
+              - change_channel is failed
+              - "'not supported' in (change_channel.msg | lower)"
+          when: other_release_channel != release_channel
+    
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Try to change allowed_ips (no endpoint, must fail loud)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            allowed_ips: ["10.20.30.40/32"]
+          register: change_ips
+          ignore_errors: true
+    
+        - name: Assert allowed_ips change rejected
+          ansible.builtin.assert:
+            that:
+              - change_ips is failed
+              - "'not supported' in (change_ips.msg | lower)"
+
+
+      always:
+
+        # -------- 99_CLEANUP --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+    
+        - name: Terminate the Dev product
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: absent
+            product_id: "{{ product_id }}"
+            confirm_destroy: true
+            wait_timeout: 900
+          register: cleaned_up
+    
+        - name: Assert cleanup terminated the product
+          ansible.builtin.assert:
+            that:
+              - cleaned_up.changed
+              - cleaned_up.product.status == "Terminated"

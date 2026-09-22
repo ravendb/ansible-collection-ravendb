@@ -1,0 +1,425 @@
+---
+# Live test for ravendb.ravendb.cloud_node
+# Not run in CI. Drive manually against a sandbox / real RavenDB Cloud account.
+#
+# Self-contained: creates 1 PB10 Production-tier aws product (3 nodes) for the
+# add/remove/restart tests, then terminates it.
+# Runtime ~30-40 min. WARNING: uses Production tier, incurs real billing until
+# the always-block terminate runs.
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY  - API key with read+write access on the target account
+#   RAVEN_CLOUD_API_URL  - Optional; defaults to https://api.cloud.ravendb.net
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_node.yml -v
+#
+
+- name: Live test cloud_node
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+
+  tasks:
+
+    # -------- init --------
+    - name: Randomize product identifiers
+      ansible.builtin.set_fact:
+        throwaway_name: "node-test-{{ 100000000 | random }}"
+        throwaway_subdomain: "node"
+
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that:
+          - api_key | length > 0
+        fail_msg: "RAVEN_CLOUD_API_KEY env var is not set."
+
+
+    # -------- 05_SETUP: create throwaway PS10 Production-tier aws product (3 nodes) --------
+    - name: Discover aws instance_types in us-east-1
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: instance_types
+        cloud_provider: aws
+        region: "us-east-1"
+      register: aws_itypes
+
+    - name: Pick PB10 (smallest add-node-capable Production instance; PS/PN types reject add-node)
+      ansible.builtin.set_fact:
+        prod_instance: "{{ (aws_itypes.result.instanceTypes | selectattr('name', 'equalto', 'PB10') | list)[0] }}"
+
+    - name: Create throwaway Production product (waits until Active, ~10-15 min)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ throwaway_name }}"
+        subdomain: "{{ throwaway_subdomain }}"
+        cloud_provider: aws
+        region: "us-east-1"
+        tier: "Production"
+        instance_type: "{{ prod_instance.name }}"
+        release_channel: "Stable62"
+        disk_size: "{{ prod_instance.parameters.availableDiskSizes[0] }}"
+        storage_type: "{{ prod_instance.parameters.availableStorageTypes[0].name }}"
+        allowed_ips: ["192.0.2.1/32"]
+        wait_timeout: 1800
+      register: throwaway_create
+
+    - name: Capture throwaway product_id + initial node tags
+      ansible.builtin.set_fact:
+        product_id: "{{ throwaway_create.product.id }}"
+        initial_tags: "{{ throwaway_create.product.nodeTags | default([]) }}"
+
+    - name: Show initial state
+      ansible.builtin.debug:
+        msg:
+          product_id: "{{ product_id }}"
+          initial_tags: "{{ initial_tags }}"
+          initial_count: "{{ initial_tags | length }}"
+
+
+    # -------- node tests wrapped in block/always for guaranteed cleanup --------
+    - block:
+
+        # -------- 10_ADD_CHECK_MODE --------
+        - name: Add node (check_mode, should predict change without writing)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: add
+          check_mode: yes
+          register: add_check
+
+        - name: Assert check_mode predicted add
+          ansible.builtin.assert:
+            that:
+              - add_check.changed
+              - "'would add' in add_check.msg | lower"
+
+        - name: Verify node count unchanged after check_mode
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            include_details: true
+          register: after_check
+
+        - name: Assert tag list unchanged
+          ansible.builtin.assert:
+            that:
+              - after_check.products[0].nodeTags == initial_tags
+
+        - name: Pace throttle (1 req/sec per endpoint)
+          ansible.builtin.pause:
+            seconds: 2
+
+
+        # -------- 20_ADD --------
+        - name: Add node (real, wait for Active)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: add
+          register: added
+
+        - name: Assert add reported changed + Active
+          ansible.builtin.assert:
+            that:
+              - added.changed
+              - "'added' in added.msg | lower"
+              - added.product.status == "Active"
+              - (added.product.nodeTags | length) == ((initial_tags | length) + 1)
+
+        - name: Capture the newly-added node tag
+          ansible.builtin.set_fact:
+            new_tag: "{{ (added.product.nodeTags | difference(initial_tags))[0] }}"
+
+        - name: Show new node tag
+          ansible.builtin.debug:
+            msg: "New node tag: {{ new_tag }}"
+
+
+        # -------- 30_RESTART_CHECK_MODE --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Restart the new node (check_mode)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: restart
+            node_tag: "{{ new_tag }}"
+          check_mode: yes
+          register: restart_check
+
+        - name: Assert check_mode predicted restart
+          ansible.builtin.assert:
+            that:
+              - restart_check.changed
+              - "'would restart' in restart_check.msg | lower"
+
+
+        # -------- 35_RESTART --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Restart the new node (default wait)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: restart
+            node_tag: "{{ new_tag }}"
+          register: restarted
+
+        - name: Assert restart reported changed + Active
+          ansible.builtin.assert:
+            that:
+              - restarted.changed
+              - "'restarted' in restarted.msg | lower"
+              - restarted.product.status == "Active"
+              - (restarted.product.nodeTags | sort) == (added.product.nodeTags | sort)
+
+
+        # -------- 37_WAIT_TIMEOUT_OVERRIDE --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Restart with a very short wait_timeout (may or may not complete in time)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: restart
+            node_tag: "{{ new_tag }}"
+            wait_timeout: 60
+          register: short_wait
+          ignore_errors: true
+
+        - name: Assert wait_timeout was honored (either succeeded quickly or timed out cleanly)
+          ansible.builtin.assert:
+            that:
+              - (short_wait is succeeded) or ('timed out' in (short_wait.msg | lower))
+
+        - name: Wait for product to be Active again before proceeding
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            include_details: true
+          register: post_short_wait
+          until: post_short_wait.count == 1 and post_short_wait.products[0].status == "Active"
+          retries: 60
+          delay: 10
+
+        - name: Pace throttle (1 req/sec per endpoint)
+          ansible.builtin.pause:
+            seconds: 2
+
+
+        # -------- 40_REMOVE_CHECK_MODE --------
+        - name: Remove the new node (check_mode)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: remove
+            node_tag: "{{ new_tag }}"
+          check_mode: yes
+          register: remove_check
+
+        - name: Assert check_mode predicted remove
+          ansible.builtin.assert:
+            that:
+              - remove_check.changed
+              - "'would remove' in remove_check.msg | lower"
+
+        - name: Verify node still present after check_mode
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            include_details: true
+          register: after_remove_check
+
+        - name: Assert tag still in nodeTags
+          ansible.builtin.assert:
+            that:
+              - new_tag in (after_remove_check.products[0].nodeTags | default([]))
+
+        - name: Pace throttle (1 req/sec per endpoint)
+          ansible.builtin.pause:
+            seconds: 2
+
+
+        # -------- 50_REMOVE --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Remove the new node (real, wait for Active)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: remove
+            node_tag: "{{ new_tag }}"
+          register: removed
+
+        - name: Assert remove reported changed + Active
+          ansible.builtin.assert:
+            that:
+              - removed.changed
+              - "'removed' in removed.msg | lower"
+              - removed.product.status == "Active"
+              - new_tag not in (removed.product.nodeTags | default([]))
+              - (removed.product.nodeTags | sort) == (initial_tags | sort)
+
+
+        # -------- 55_FIRE_AND_FORGET_ADD_REMOVE --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Add node with wait=false
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: add
+            wait: false
+          register: fnf_added
+
+        - name: Assert fire-and-forget add returned immediately
+          ansible.builtin.assert:
+            that:
+              - fnf_added.changed
+              - "'initiated' in fnf_added.msg | lower"
+
+        - name: Manually poll for product Active and capture nodeTags
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            include_details: true
+          register: fnf_add_poll
+          until: fnf_add_poll.count == 1 and fnf_add_poll.products[0].status == "Active"
+          retries: 60
+          delay: 10
+
+        - name: Capture the newly-added tag (F&F)
+          ansible.builtin.set_fact:
+            fnf_new_tag: "{{ (fnf_add_poll.products[0].nodeTags | difference(initial_tags))[0] }}"
+
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Remove the F&F node with wait=false
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: remove
+            node_tag: "{{ fnf_new_tag }}"
+            wait: false
+          register: fnf_removed
+
+        - name: Assert fire-and-forget remove returned immediately
+          ansible.builtin.assert:
+            that:
+              - fnf_removed.changed
+              - "'initiated' in fnf_removed.msg | lower"
+
+        - name: Manually poll for product Active and node removed
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            include_details: true
+          register: fnf_remove_poll
+          until:
+            - fnf_remove_poll.count == 1
+            - fnf_remove_poll.products[0].status == "Active"
+            - fnf_new_tag not in (fnf_remove_poll.products[0].nodeTags | default([]))
+          retries: 60
+          delay: 10
+
+
+        # -------- 60_ERRORS --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Remove a non-existent tag (must fail loud)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: remove
+            node_tag: "ZZ"
+          register: bad_remove
+          ignore_errors: true
+
+        - name: Assert remove of non-existent tag rejected
+          ansible.builtin.assert:
+            that:
+              - bad_remove is failed
+              - "'not in current nodetags' in (bad_remove.msg | lower)"
+
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Restart a non-existent tag (must fail loud)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: restart
+            node_tag: "ZZ"
+          register: bad_restart
+          ignore_errors: true
+
+        - name: Assert restart of non-existent tag rejected
+          ansible.builtin.assert:
+            that:
+              - bad_restart is failed
+              - "'not in current nodetags' in (bad_restart.msg | lower)"
+
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Remove without node_tag (required_if must reject)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: remove
+          register: missing_tag
+          ignore_errors: true
+
+        - name: Assert missing node_tag rejected
+          ansible.builtin.assert:
+            that:
+              - missing_tag is failed
+
+      always:
+
+        # -------- 99_CLEANUP: terminate throwaway product no matter what --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
+        - name: Terminate throwaway product
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: absent
+            product_id: "{{ product_id }}"
+            confirm_destroy: true
+            hide_in_portal: true
+            wait_timeout: 900
+          when: product_id is defined

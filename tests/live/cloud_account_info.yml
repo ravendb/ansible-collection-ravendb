@@ -1,0 +1,73 @@
+---
+# Live test for ravendb.ravendb.cloud_account_info
+# Not run in CI. Drive manually against a sandbox / real RavenDB Cloud account.
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY  - API key with read access on the target account
+#   RAVEN_CLOUD_API_URL  - Optional; defaults to https://api.cloud.ravendb.net
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_account_info.yml -v
+#
+
+- name: Live test cloud_account_info
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+
+  tasks:
+
+    # -------- init --------
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that:
+          - api_key | length > 0
+        fail_msg: "RAVEN_CLOUD_API_KEY env var must be set."
+
+
+    # -------- 10_GET --------
+    - name: Get account info
+      ravendb.ravendb.cloud_account_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+      register: result
+
+    - name: Assert result shape
+      ansible.builtin.assert:
+        that:
+          - not result.changed
+          - result.account is mapping
+
+    - name: Diagnostic - dump account info
+      ansible.builtin.debug:
+        var: result.account
+
+    # -------- 40_ERRORS --------
+    - name: Empty api_key
+      ravendb.ravendb.cloud_account_info:
+        api_key: ""
+        api_url: "{{ api_url }}"
+      register: bad_key
+      ignore_errors: true
+
+    - name: Assert empty api_key rejected
+      ansible.builtin.assert:
+        that:
+          - bad_key is failed
+          - "'api_key' in (bad_key.msg | lower)"
+
+    - name: Invalid api_url
+      ravendb.ravendb.cloud_account_info:
+        api_key: "{{ api_key }}"
+        api_url: "not-a-url"
+      register: bad_url
+      ignore_errors: true
+
+    - name: Assert invalid api_url rejected
+      ansible.builtin.assert:
+        that:
+          - bad_url is failed
+          - "'invalid api_url' in (bad_url.msg | lower)"

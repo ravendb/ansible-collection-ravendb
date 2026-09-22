@@ -1,0 +1,220 @@
+---
+# Live test for ravendb.ravendb.cloud_product validation errors.
+# Not run in CI. Drive manually against a sandbox / real RavenDB Cloud account.
+#
+# No products are created by this test. It only exercises validation paths that fail
+# before any real API mutation. Safe to run repeatedly and cheap (no waits).
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY
+#   RAVEN_CLOUD_API_URL  (optional; defaults to https://api.cloud.ravendb.net)
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_product_errors.yml -v
+#
+
+- name: Live test cloud_product validation errors
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+    sfx: "{{ 1000000 | random }}"
+
+  tasks:
+
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that: [api_key | length > 0]
+        fail_msg: "RAVEN_CLOUD_API_KEY env var must be set."
+
+
+    # -------- 10_MISSING_NAME_WHEN_PRESENT --------
+    - name: state=present without name (required_if must reject)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+      register: missing_name
+      ignore_errors: true
+
+    - name: Assert missing name rejected
+      ansible.builtin.assert:
+        that: [missing_name is failed]
+
+
+    # -------- 20_ABSENT_MISSING_BOTH --------
+    - name: state=absent without name or product_id (required_one_of)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        confirm_destroy: true
+      register: missing_both
+      ignore_errors: true
+
+    - name: Assert one-of rejection
+      ansible.builtin.assert:
+        that:
+          - missing_both is failed
+          - "'one of' in (missing_both.msg | lower)"
+
+
+    # -------- 30_MUTEX_VIOLATION --------
+    - name: name AND product_id both set (mutually_exclusive)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        name: "x"
+        product_id: "y"
+        confirm_destroy: true
+      register: mutex_violation
+      ignore_errors: true
+
+    - name: Assert mutex rejection
+      ansible.builtin.assert:
+        that:
+          - mutex_violation is failed
+          - "'mutually exclusive' in (mutex_violation.msg | lower)"
+
+
+    # -------- 40_MISSING_CREATE_FIELD --------
+    - name: Create with missing required field (no region)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "no-region-{{ sfx }}"
+        cloud_provider: aws
+        instance_type: "Dev10"
+        release_channel: "stable"
+        disk_size: 10
+        storage_type: "SsdStandard"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+      register: no_region
+      ignore_errors: true
+
+    - name: Assert missing create field rejected
+      ansible.builtin.assert:
+        that:
+          - no_region is failed
+          - "'missing required fields' in (no_region.msg | lower)"
+
+
+    # -------- 50_ABSENT_NEEDS_CONFIRM --------
+    - name: state=absent without confirm_destroy (fails without touching API)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        name: "any-name"
+      register: no_confirm
+      ignore_errors: true
+
+    - name: Assert refusal
+      ansible.builtin.assert:
+        that:
+          - no_confirm is failed
+          - "'confirm_destroy' in (no_confirm.msg | lower)"
+
+
+    # -------- 60_INVALID_CHOICES --------
+    - name: Invalid tier choice
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "bad-tier-{{ sfx }}"
+        cloud_provider: aws
+        instance_type: "Dev10"
+        region: "us-east-1"
+        release_channel: "stable"
+        disk_size: 10
+        storage_type: "SsdStandard"
+        tier: "Enterprise"
+        allowed_ips: ["192.0.2.1/32"]
+      register: bad_tier
+      ignore_errors: true
+
+    - name: Assert invalid tier rejected
+      ansible.builtin.assert:
+        that: [bad_tier is failed]
+
+    - name: Invalid storage_type choice
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "bad-storage-{{ sfx }}"
+        cloud_provider: aws
+        instance_type: "Dev10"
+        region: "us-east-1"
+        release_channel: "stable"
+        disk_size: 10
+        storage_type: "gp3"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+      register: bad_storage
+      ignore_errors: true
+
+    - name: Assert invalid storage_type rejected
+      ansible.builtin.assert:
+        that: [bad_storage is failed]
+
+    - name: Invalid cloud_provider choice
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "bad-provider-{{ sfx }}"
+        cloud_provider: oracle
+        instance_type: "Dev10"
+        region: "us-east-1"
+        release_channel: "stable"
+        disk_size: 10
+        storage_type: "SsdStandard"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+      register: bad_provider
+      ignore_errors: true
+
+    - name: Assert invalid cloud_provider rejected
+      ansible.builtin.assert:
+        that: [bad_provider is failed]
+
+
+    # -------- 70_AUTH_URL_ERRORS --------
+    - name: Empty api_key
+      ravendb.ravendb.cloud_product:
+        api_key: ""
+        api_url: "{{ api_url }}"
+        state: absent
+        name: "x"
+        confirm_destroy: true
+      register: bad_key
+      ignore_errors: true
+
+    - name: Assert empty api_key rejected
+      ansible.builtin.assert:
+        that:
+          - bad_key is failed
+          - "'api_key' in (bad_key.msg | lower)"
+
+    - name: Invalid api_url
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "not-a-url"
+        state: absent
+        name: "x"
+        confirm_destroy: true
+      register: bad_url
+      ignore_errors: true
+
+    - name: Assert invalid api_url rejected
+      ansible.builtin.assert:
+        that:
+          - bad_url is failed
+          - "'invalid api_url' in (bad_url.msg | lower)"

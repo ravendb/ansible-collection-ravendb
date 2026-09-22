@@ -1,0 +1,363 @@
+---
+# Live test for ravendb.ravendb.cloud_product lifecycle on AWS (Development tier).
+# Not run in CI. Drive manually against a sandbox / real RavenDB Cloud account.
+#
+# WARNING: Creates and terminates real products on your account. Sandbox/dev only.
+#
+# Also exercises fire-and-forget (wait=false) since that path is not provider-specific.
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY
+#   RAVEN_CLOUD_API_URL  (optional; defaults to https://api.cloud.ravendb.net)
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_product_aws.yml -v
+#
+
+- name: Live test cloud_product lifecycle (AWS)
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+    provider: aws
+    sfx: "{{ 1000000 | random }}"
+
+  tasks:
+
+    # -------- init --------
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that: [api_key | length > 0]
+        fail_msg: "RAVEN_CLOUD_API_KEY env var must be set."
+
+
+    - name: Set product names for this run
+      ansible.builtin.set_fact:
+        product_name: "ansible-live-aws-{{ sfx }}"
+        product_name_fnf: "ansible-live-aws-fnf-{{ sfx }}"
+        subdomain: "aws"
+        subdomain_fnf: "awsf"
+
+    - name: Show test product names (for manual cleanup if interrupted)
+      ansible.builtin.debug:
+        msg:
+          product_name: "{{ product_name }}"
+          product_name_fnf: "{{ product_name_fnf }}"
+
+
+    # -------- 10_DISCOVER (metadata lookup) --------
+    - name: Discover regions for provider
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: regions
+        cloud_provider: "{{ provider }}"
+      register: regions_result
+
+    - name: Pick first region
+      ansible.builtin.set_fact:
+        region: "us-east-1"
+
+    - name: Discover instance types for region
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: instance_types
+        cloud_provider: "{{ provider }}"
+        region: "{{ region }}"
+      register: itypes_result
+
+    - name: Pick first Development-tier instance and its first available storage type
+      ansible.builtin.set_fact:
+        dev_instance: "{{ (itypes_result.result.instanceTypes | selectattr('tier', 'equalto', 'Development') | list)[0] }}"
+
+    - name: Extract instance name + storage type
+      ansible.builtin.set_fact:
+        instance_type: "{{ dev_instance.name }}"
+        storage_type: "{{ (dev_instance.parameters.availableStorageTypes | default([{'name': 'SsdStandard'}]))[0].name }}"
+        disk_size: "{{ (dev_instance.parameters.availableDiskSizes | default([10]))[0] | int }}"
+
+    - name: Discover release channels
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: release_channels
+      register: rc_result
+
+    - name: Pick first release channel name
+      ansible.builtin.set_fact:
+        release_channel: "{{ (rc_result.result.releaseChannels | default(rc_result.result))[0].name | default('stable') }}"
+
+    - name: Show resolved create params
+      ansible.builtin.debug:
+        msg:
+          provider: "{{ provider }}"
+          region: "{{ region }}"
+          instance_type: "{{ instance_type }}"
+          storage_type: "{{ storage_type }}"
+          disk_size: "{{ disk_size }}"
+          release_channel: "{{ release_channel }}"
+
+
+    # -------- 20_CREATE_CHECK_MODE --------
+    - name: Create product (check_mode)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ product_name }}"
+        subdomain: "{{ subdomain }}"
+        cloud_provider: "{{ provider }}"
+        instance_type: "{{ instance_type }}"
+        region: "{{ region }}"
+        release_channel: "{{ release_channel }}"
+        disk_size: "{{ disk_size }}"
+        storage_type: "{{ storage_type }}"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+      check_mode: yes
+      register: create_check
+
+    - name: Assert check_mode predicted creation
+      ansible.builtin.assert:
+        that:
+          - create_check.changed
+          - "'would be created' in create_check.msg | lower"
+
+    - name: Verify product NOT actually created
+      ansible.builtin.uri:
+        url: "{{ api_url }}/api/v1/products/list"
+        headers: {X-Api-Key: "{{ api_key }}"}
+        return_content: true
+      register: list_after_check
+
+    - name: Assert product absent from raw listing
+      ansible.builtin.assert:
+        that:
+          - product_name not in (list_after_check.json['items'] | default([]) | map(attribute='name') | list)
+
+
+    # -------- 30_CREATE (real, wait for Active) --------
+    - name: Create product (real)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ product_name }}"
+        subdomain: "{{ subdomain }}"
+        cloud_provider: "{{ provider }}"
+        instance_type: "{{ instance_type }}"
+        region: "{{ region }}"
+        release_channel: "{{ release_channel }}"
+        disk_size: "{{ disk_size }}"
+        storage_type: "{{ storage_type }}"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+        wait_timeout: 1800
+      register: created
+
+    - name: Assert create result
+      ansible.builtin.assert:
+        that:
+          - created.changed
+          - "'created' in created.msg | lower"
+          - created.product.status == "Active"
+          - created.product.id | length > 0
+
+    - name: Capture product id
+      ansible.builtin.set_fact:
+        product_id: "{{ created.product.id }}"
+
+
+    # -------- 40_IDEMPOTENCY --------
+    - name: Re-run create (should no-op)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ product_name }}"
+        subdomain: "{{ subdomain }}"
+        cloud_provider: "{{ provider }}"
+        instance_type: "{{ instance_type }}"
+        region: "{{ region }}"
+        release_channel: "{{ release_channel }}"
+        disk_size: "{{ disk_size }}"
+        storage_type: "{{ storage_type }}"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+      register: created_again
+
+    - name: Assert no-drift no-op
+      ansible.builtin.assert:
+        that:
+          - not created_again.changed
+          - "'no drift' in created_again.msg | lower"
+
+
+    # -------- 50_ABSENT_NEEDS_CONFIRM --------
+    - name: Terminate without confirm_destroy (real, must fail)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        name: "{{ product_name }}"
+      register: no_confirm
+      ignore_errors: true
+
+    - name: Assert refusal
+      ansible.builtin.assert:
+        that:
+          - no_confirm is failed
+          - "'confirm_destroy' in (no_confirm.msg | lower)"
+
+    - name: Terminate without confirm_destroy (check_mode, must also fail)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        name: "{{ product_name }}"
+      check_mode: yes
+      register: no_confirm_check
+      ignore_errors: true
+
+    - name: Assert refusal in check_mode too
+      ansible.builtin.assert:
+        that:
+          - no_confirm_check is failed
+          - "'confirm_destroy' in (no_confirm_check.msg | lower)"
+
+
+    # -------- 60_ABSENT_CHECK_MODE --------
+    - name: Terminate in check_mode
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        name: "{{ product_name }}"
+        confirm_destroy: true
+      check_mode: yes
+      register: terminate_check
+
+    - name: Assert check_mode predicted termination
+      ansible.builtin.assert:
+        that:
+          - terminate_check.changed
+          - "'would be terminated' in terminate_check.msg | lower"
+
+    - name: Verify product still Active after check_mode
+      ansible.builtin.uri:
+        url: "{{ api_url }}/api/v1/products/details/{{ product_id }}"
+        headers: {X-Api-Key: "{{ api_key }}"}
+      register: details_after_check
+
+    - name: Assert status still Active
+      ansible.builtin.assert:
+        that: [details_after_check.json.status == "Active"]
+
+
+    # -------- 70_TERMINATE (real, with hide_in_portal) --------
+    - name: Terminate product with hide_in_portal
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        name: "{{ product_name }}"
+        confirm_destroy: true
+        hide_in_portal: true
+        wait_timeout: 600
+      register: terminated
+
+    - name: Assert termination
+      ansible.builtin.assert:
+        that:
+          - terminated.changed
+          - "'terminated' in terminated.msg | lower"
+          - terminated.product.status == "Terminated"
+
+
+    # -------- 80_ABSENT_IDEMPOTENCY_BY_ID --------
+    - name: Re-run terminate by product_id (already terminated)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        product_id: "{{ product_id }}"
+        confirm_destroy: true
+      register: terminated_again
+
+    - name: Assert already-terminated no-op
+      ansible.builtin.assert:
+        that:
+          - not terminated_again.changed
+          - "'already' in terminated_again.msg | lower"
+
+
+    # -------- 90_FIRE_AND_FORGET_CREATE + TERMINATE (aws-only, provider-agnostic path) --------
+    - name: Create with wait=false
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ product_name_fnf }}"
+        subdomain: "{{ subdomain_fnf }}"
+        cloud_provider: "{{ provider }}"
+        instance_type: "{{ instance_type }}"
+        region: "{{ region }}"
+        release_channel: "{{ release_channel }}"
+        disk_size: "{{ disk_size }}"
+        storage_type: "{{ storage_type }}"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+        wait: false
+      register: fnf_created
+
+    - name: Assert fire-and-forget create returned immediately
+      ansible.builtin.assert:
+        that:
+          - fnf_created.changed
+          - "'initiated' in fnf_created.msg | lower"
+          - fnf_created.product.id | length > 0
+
+    - name: Capture F&F product id
+      ansible.builtin.set_fact:
+        fnf_product_id: "{{ fnf_created.product.id }}"
+
+    - name: Manually wait for F&F product to become Active (via cloud_product_info)
+      ravendb.ravendb.cloud_product_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        product_id: "{{ fnf_product_id }}"
+        include_details: true
+      register: fnf_poll
+      until: fnf_poll.count == 1 and fnf_poll.products[0].status == "Active"
+      retries: 60
+      delay: 10
+
+    - name: Terminate F&F product with wait=false
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        product_id: "{{ fnf_product_id }}"
+        confirm_destroy: true
+        wait: false
+      register: fnf_terminated
+
+    - name: Assert fire-and-forget terminate returned immediately
+      ansible.builtin.assert:
+        that:
+          - fnf_terminated.changed
+          - "'initiated' in fnf_terminated.msg | lower"
+
+    - name: Manually wait for F&F product to become Terminated
+      ravendb.ravendb.cloud_product_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        product_id: "{{ fnf_product_id }}"
+        include_details: true
+      register: fnf_term_poll
+      until: fnf_term_poll.count == 1 and fnf_term_poll.products[0].status == "Terminated"
+      retries: 60
+      delay: 10

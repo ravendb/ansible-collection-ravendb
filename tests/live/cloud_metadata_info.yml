@@ -1,0 +1,198 @@
+---
+# Live test for ravendb.ravendb.cloud_metadata_info
+# Not run in CI. Drive manually against a sandbox / real RavenDB Cloud account.
+#
+# Covers all 3 cloud providers (aws, azure, gcp) since metadata reads are cheap.
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY
+#   RAVEN_CLOUD_API_URL  (optional; defaults to https://api.cloud.ravendb.net)
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_metadata_info.yml -v
+#
+
+- name: Live test cloud_metadata_info
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+
+  tasks:
+
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that: [api_key | length > 0]
+        fail_msg: "RAVEN_CLOUD_API_KEY env var must be set."
+
+
+    # -------- 10_RELEASE_CHANNELS --------
+    - name: Query release_channels
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: release_channels
+      register: rc
+
+    - name: Assert release_channels shape
+      ansible.builtin.assert:
+        that:
+          - not rc.changed
+          - rc.query == "release_channels"
+          - rc.result is defined
+
+    - name: Diagnostic - dump release_channels
+      ansible.builtin.debug:
+        var: rc.result
+
+    # -------- 20_REGIONS_MULTI_PROVIDER --------
+    - name: Query regions per provider
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: regions
+        cloud_provider: "{{ item }}"
+      register: regions_per_provider
+      loop: [aws, azure, gcp]
+
+    - name: Assert regions returned for every provider
+      ansible.builtin.assert:
+        that:
+          - r.query == "regions"
+          - r.result is defined
+      loop: "{{ regions_per_provider.results }}"
+      loop_control: {loop_var: r}
+
+    - name: Capture first region per provider for instance_types test
+      ansible.builtin.set_fact:
+        first_region_aws: "{{ regions_per_provider.results[0].result.names[0] }}"
+        first_region_azure: "{{ regions_per_provider.results[1].result.names[0] }}"
+        first_region_gcp: "{{ regions_per_provider.results[2].result.names[0] }}"
+
+
+    # -------- 30_INSTANCE_TYPES_MULTI_PROVIDER --------
+    - name: Query instance_types per provider
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: instance_types
+        cloud_provider: "{{ item.provider }}"
+        region: "{{ item.region }}"
+      register: itypes_per_provider
+      loop:
+        - {provider: aws,   region: "{{ first_region_aws }}"}
+        - {provider: azure, region: "{{ first_region_azure }}"}
+        - {provider: gcp,   region: "{{ first_region_gcp }}"}
+
+    - name: Assert instance_types shape for each provider
+      ansible.builtin.assert:
+        that:
+          - r.query == "instance_types"
+          - r.result is defined
+      loop: "{{ itypes_per_provider.results }}"
+      loop_control: {loop_var: r}
+
+
+    # -------- 40_REQUIRED_IF --------
+    - name: regions without cloud_provider (must reject)
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: regions
+      register: regions_no_provider
+      ignore_errors: true
+
+    - name: Assert regions without cloud_provider rejected
+      ansible.builtin.assert:
+        that: [regions_no_provider is failed]
+
+    - name: instance_types without region (must reject)
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: instance_types
+        cloud_provider: aws
+      register: itypes_no_region
+      ignore_errors: true
+
+    - name: Assert instance_types without region rejected
+      ansible.builtin.assert:
+        that: [itypes_no_region is failed]
+
+
+    # -------- 50_STRICT_VALIDATION --------
+    - name: release_channels with cloud_provider (unused arg, reject)
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: release_channels
+        cloud_provider: aws
+      register: rc_with_provider
+      ignore_errors: true
+
+    - name: Assert unused cloud_provider rejected
+      ansible.builtin.assert:
+        that:
+          - rc_with_provider is failed
+          - "'does not accept' in (rc_with_provider.msg | lower)"
+
+    - name: regions with region (unused arg, reject)
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: regions
+        cloud_provider: aws
+        region: "us-east-1"
+      register: regions_with_region
+      ignore_errors: true
+
+    - name: Assert unused region rejected
+      ansible.builtin.assert:
+        that:
+          - regions_with_region is failed
+          - "'does not accept' in (regions_with_region.msg | lower)"
+
+
+    # -------- 60_ERRORS --------
+    - name: Invalid cloud_provider
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: regions
+        cloud_provider: oracle
+      register: bad_provider
+      ignore_errors: true
+
+    - name: Assert invalid cloud_provider rejected
+      ansible.builtin.assert:
+        that: [bad_provider is failed]
+
+    - name: Empty api_key
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: ""
+        api_url: "{{ api_url }}"
+        query: release_channels
+      register: bad_key
+      ignore_errors: true
+
+    - name: Assert empty api_key rejected
+      ansible.builtin.assert:
+        that:
+          - bad_key is failed
+          - "'api_key' in (bad_key.msg | lower)"
+
+    - name: Invalid api_url
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "not-a-url"
+        query: release_channels
+      register: bad_url
+      ignore_errors: true
+
+    - name: Assert invalid api_url rejected
+      ansible.builtin.assert:
+        that:
+          - bad_url is failed
+          - "'invalid api_url' in (bad_url.msg | lower)"

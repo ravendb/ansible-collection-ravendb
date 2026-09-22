@@ -1,0 +1,195 @@
+---
+# Live test for ravendb.ravendb.cloud_product lifecycle on GCP (Development tier).
+# Not run in CI. Drive manually against a sandbox / real RavenDB Cloud account.
+#
+# WARNING: Creates and terminates real products on your account. Sandbox/dev only.
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY
+#   RAVEN_CLOUD_API_URL  (optional; defaults to https://api.cloud.ravendb.net)
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_product_gcp.yml -v
+#
+
+- name: Live test cloud_product lifecycle (GCP)
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+    provider: gcp
+    sfx: "{{ 1000000 | random }}"
+
+  tasks:
+
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that: [api_key | length > 0]
+        fail_msg: "RAVEN_CLOUD_API_KEY env var must be set."
+
+    - name: Set product name for this run
+      ansible.builtin.set_fact:
+        product_name: "ansible-live-gcp-{{ sfx }}"
+        subdomain: "gc"
+
+    - name: Show test product name
+      ansible.builtin.debug:
+        msg: "product_name: {{ product_name }}"
+
+
+    # -------- 10_DISCOVER --------
+    - name: Discover regions for provider
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: regions
+        cloud_provider: "{{ provider }}"
+      register: regions_result
+
+    - name: Pick first region
+      ansible.builtin.set_fact:
+        region: "us-east1"
+
+    - name: Discover instance types for region
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: instance_types
+        cloud_provider: "{{ provider }}"
+        region: "{{ region }}"
+      register: itypes_result
+
+    - name: Pick first Development-tier instance and its storage type
+      ansible.builtin.set_fact:
+        dev_instance: "{{ (itypes_result.result.instanceTypes | selectattr('tier', 'equalto', 'Development') | list)[0] }}"
+
+    - name: Extract instance + storage + disk size
+      ansible.builtin.set_fact:
+        instance_type: "{{ dev_instance.name }}"
+        storage_type: "{{ (dev_instance.parameters.availableStorageTypes | default([{'name': 'SsdStandard'}]))[0].name }}"
+        disk_size: "{{ (dev_instance.parameters.availableDiskSizes | default([10]))[0] | int }}"
+
+    - name: Discover release channels
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: release_channels
+      register: rc_result
+
+    - name: Pick first release channel
+      ansible.builtin.set_fact:
+        release_channel: "{{ (rc_result.result.releaseChannels | default(rc_result.result))[0].name | default('stable') }}"
+
+    - name: Show resolved create params
+      ansible.builtin.debug:
+        msg:
+          provider: "{{ provider }}"
+          region: "{{ region }}"
+          instance_type: "{{ instance_type }}"
+          storage_type: "{{ storage_type }}"
+          disk_size: "{{ disk_size }}"
+          release_channel: "{{ release_channel }}"
+
+
+    # -------- 20_CREATE_CHECK_MODE --------
+    - name: Create (check_mode)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ product_name }}"
+        subdomain: "{{ subdomain }}"
+        cloud_provider: "{{ provider }}"
+        instance_type: "{{ instance_type }}"
+        region: "{{ region }}"
+        release_channel: "{{ release_channel }}"
+        disk_size: "{{ disk_size }}"
+        storage_type: "{{ storage_type }}"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+      check_mode: yes
+      register: create_check
+
+    - name: Assert check_mode predicted creation
+      ansible.builtin.assert:
+        that:
+          - create_check.changed
+          - "'would be created' in create_check.msg | lower"
+
+
+    # -------- 30_CREATE (real) --------
+    - name: Create (real)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ product_name }}"
+        subdomain: "{{ subdomain }}"
+        cloud_provider: "{{ provider }}"
+        instance_type: "{{ instance_type }}"
+        region: "{{ region }}"
+        release_channel: "{{ release_channel }}"
+        disk_size: "{{ disk_size }}"
+        storage_type: "{{ storage_type }}"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+        wait_timeout: 1800
+      register: created
+
+    - name: Assert create result
+      ansible.builtin.assert:
+        that:
+          - created.changed
+          - "'created' in created.msg | lower"
+          - created.product.status == "Active"
+          - created.product.id | length > 0
+
+    - name: Capture product id
+      ansible.builtin.set_fact:
+        product_id: "{{ created.product.id }}"
+
+
+    # -------- 40_IDEMPOTENCY --------
+    - name: Re-run create (should no-op)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ product_name }}"
+        subdomain: "{{ subdomain }}"
+        cloud_provider: "{{ provider }}"
+        instance_type: "{{ instance_type }}"
+        region: "{{ region }}"
+        release_channel: "{{ release_channel }}"
+        disk_size: "{{ disk_size }}"
+        storage_type: "{{ storage_type }}"
+        tier: "Development"
+        allowed_ips: ["192.0.2.1/32"]
+      register: created_again
+
+    - name: Assert no-drift no-op
+      ansible.builtin.assert:
+        that:
+          - not created_again.changed
+          - "'no drift' in created_again.msg | lower"
+
+
+    # -------- 50_TERMINATE --------
+    - name: Terminate product
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: absent
+        name: "{{ product_name }}"
+        confirm_destroy: true
+        wait_timeout: 1800
+      register: terminated
+
+    - name: Assert termination
+      ansible.builtin.assert:
+        that:
+          - terminated.changed
+          - "'terminated' in terminated.msg | lower"
+          - terminated.product.status == "Terminated"
