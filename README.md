@@ -68,6 +68,15 @@ These modules manage RavenDB clusters, databases, and indexes:
 - `ravendb.ravendb.index`: Creates, updates, or deletes RavenDB indexes, including support for multi-map indexes and managing index modes (enable, disable, pause, resume, reset).
 - `ravendb.ravendb.node`: Adds nodes to an existing RavenDB cluster, supporting both regular members and watcher nodes.
 
+These modules manage products on the RavenDB Cloud managed service via its control-plane API (X-Api-Key authentication):
+
+- `ravendb.ravendb.cloud_account_info`: Read account information for the authenticated Cloud API key.
+- `ravendb.ravendb.cloud_metadata_info`: Discover available release channels, regions per cloud provider (aws, azure, gcp), and instance types per region.
+- `ravendb.ravendb.cloud_product_info`: List or filter cloud products by id or name; optionally enrich with detailed product info.
+- `ravendb.ravendb.cloud_product`: Create, terminate, and reconcile drift on a cloud product. Reconciles storage (disk_size / storage_type / iops / throughput) and instance_type. Immutable fields (tier, cloud_provider, region, subdomain) and fields with no change endpoint (allowed_ips, release_channel) fail loud when drift is detected. `state=absent` requires an explicit `confirm_destroy=true` safety flag.
+- `ravendb.ravendb.cloud_node`: Add, remove, or restart individual nodes on a multi-node cloud product.
+- `ravendb.ravendb.cloud_certificate`: Download the client PKCS12 certificate for a cloud product to a local path. Idempotent by byte-equality; writes with 0o600 permissions.
+
 
 ## ravendb.ravendb Role Tags
 

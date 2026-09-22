@@ -66,3 +66,19 @@ releases:
               - Check mode support.
       - changed:
           - Modularized the project structure and internals for clearer responsibilities and easier maintenance.
+
+  - name: "RavenDB Cloud Modules"
+    tag: "v1.1.0"
+    version: "1.1.0"
+    changes:
+      - added:
+          - RavenDB Cloud control-plane support via six new modules that talk to the RavenDB Cloud API (X-Api-Key auth).
+          - New `ravendb.ravendb.cloud_account_info` module - read account info.
+          - New `ravendb.ravendb.cloud_metadata_info` module - discover release channels, per-provider regions, and per-region instance types (aws, azure, gcp).
+          - New `ravendb.ravendb.cloud_product_info` module - list or filter cloud products by id or name, with optional detailed enrichment.
+          - New `ravendb.ravendb.cloud_product` module - create, terminate, and reconcile drift on a cloud product (storage size/type/iops/throughput and instance_type). Immutable fields (tier, cloud_provider, region, subdomain) and fields with no change endpoint (allowed_ips, release_channel) fail loud on drift. `state=absent` gated behind an explicit `confirm_destroy=true` safety flag.
+          - New `ravendb.ravendb.cloud_node` module - add, remove, and restart individual nodes on multi-node cloud products (PB and P instance types).
+          - New `ravendb.ravendb.cloud_certificate` module - download the product client PKCS12 certificate to a local path. Idempotent by byte-equality; writes with 0o600 and refuses to follow symlinks.
+          - Shared documentation fragments `ravendb.ravendb.ravendb_cloud` (api_key/api_url/check_mode) and `ravendb.ravendb.ravendb_cloud_wait` (wait/wait_timeout for async operations).
+          - Live-test suite under `tests/live/cloud_*.yml` (not run in CI - driven manually against a sandbox account) covering account, metadata, product errors/info/lifecycle (aws/azure/gcp), node add/remove/restart, certificate download+drift, and full drift reconciliation.
+          - Unit tests under `tests/unit/test_cloud.py` covering validation and reconciler paths (mocked API).
