@@ -1,0 +1,81 @@
+##################################################################################################
+# playbooks/cloud_node.yml
+#
+# Purpose: Demonstrate the cloud_node module for per-node operations on a RavenDB Cloud product
+#
+# What it does:
+#   - Adds a new additional node (API picks the tag)
+#   - Removes a specific node by tag
+#   - Restarts a specific node by tag
+#   - Shows fire-and-forget mode and shorter wait_timeout overrides
+#
+# Notes:
+#   - Authentication is via the C(X-Api-Key) header. Provide your API key in C(api_key).
+#   - C(add) is not idempotent each call adds a node. Use C(cloud_product_info) (and inspect
+#     C(nodeTags)) to confirm current cluster size before adding.
+#   - C(remove) and C(restart) fail loud if the C(node_tag) is not in the product's current
+#     C(nodeTags).
+#   - Some tiers (e.g. Free) only support a single node; add/remove will be rejected by the API.
+#
+# See module documentation for more details:
+#   - plugins/modules/cloud_node.py
+##################################################################################################
+
+
+# -----------------------------------------------------------------------------------------------
+# 1) Add an additional node (default wait - up to 30 min for Active)
+# -----------------------------------------------------------------------------------------------
+
+- name: Add a node
+  ravendb.ravendb.cloud_node:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    product_id: "your-product-id"
+    action: add
+
+
+# -----------------------------------------------------------------------------------------------
+# 2) Add a node with shorter wait_timeout
+# -----------------------------------------------------------------------------------------------
+
+- name: Add a node, give up after 5 min
+  ravendb.ravendb.cloud_node:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    product_id: "your-product-id"
+    action: add
+    wait_timeout: 300
+
+
+# -----------------------------------------------------------------------------------------------
+# 3) Fire-and-forget add (return as soon as API accepts the POST)
+# -----------------------------------------------------------------------------------------------
+
+- name: Add a node, do not wait
+  ravendb.ravendb.cloud_node:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    product_id: "your-product-id"
+    action: add
+    wait: false
+
+
+# -----------------------------------------------------------------------------------------------
+# 4) Remove a specific node by tag
+# -----------------------------------------------------------------------------------------------
+
+- name: Remove node C
+  ravendb.ravendb.cloud_node:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    product_id: "your-product-id"
+    action: remove
+    node_tag: "C"
+
+
+# -----------------------------------------------------------------------------------------------
+# 5) Restart a specific node by tag
+# -----------------------------------------------------------------------------------------------
+
+- name: Restart node B
+  ravendb.ravendb.cloud_node:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    product_id: "your-product-id"
+    action: restart
+    node_tag: "B"

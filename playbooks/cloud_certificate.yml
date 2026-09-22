@@ -1,0 +1,26 @@
+##################################################################################################
+# playbooks/cloud_certificate.yml
+#
+# Purpose: Demonstrate using the cloud_certificate module to fetch and persist a RavenDB Cloud
+#          product client certificate to a local file.
+#
+# What it does:
+#   - Downloads the client certificate for a given product id
+#   - Writes it to a local path with restrictive permissions (0600)
+#   - Idempotent: re-runs are a no-op when the local file already matches the API response (byte-equal)
+#
+# Notes:
+#   - Authentication is via the C(X-Api-Key) header. Provide your API key in C(api_key).
+#   - The certificate content is never returned in the module result (sensitive).
+#   - To change mode/owner/group of the resulting file, run C(ansible.builtin.file) afterwards.
+#
+# See module documentation for more details:
+#   - plugins/modules/cloud_certificate.py
+##################################################################################################
+
+
+- name: Download RavenDB Cloud product certificate
+  ravendb.ravendb.cloud_certificate:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    product_id: "your-product-id"
+    dest: "/etc/ravendb/cloud/admin.client.pfx"

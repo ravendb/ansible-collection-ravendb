@@ -1,0 +1,145 @@
+##################################################################################################
+# playbooks/cloud_product.yml
+#
+# Purpose: Demonstrate common usage patterns for the cloud_product module
+#
+# What it does:
+#   - Creates a RavenDB Cloud product (state=present), idempotent if already exists.
+#   - Reconciles drift on an existing product (instance_type and storage attributes).
+#   - Terminates a product (state=absent), gated behind the C(confirm_destroy=true) safety flag.
+#   - Shows fire-and-forget mode via C(wait=false).
+#
+# Notes:
+#   - Authentication is via the C(X-Api-Key) header. Provide your API key in C(api_key).
+#   - For C(state=present) the C(name) field is required.
+#   - For C(state=absent) at least one of C(name) or C(product_id) is required, plus
+#     C(confirm_destroy=true) to actually proceed.
+#   - Use C(cloud_metadata_info) to discover valid C(region), C(instance_type), C(release_channel),
+#     and C(storage_type) values for your cloud_provider.
+#   - Storage drift on SsdPremium requires all four fields (C(disk_size), C(storage_type),
+#     C(iops), C(throughput)). SsdStandard uses only C(disk_size) and C(storage_type).
+#   - Node count changes are not handled here; use C(ravendb.ravendb.cloud_node).
+#
+# See module documentation for more details:
+#   - plugins/modules/cloud_product.py
+##################################################################################################
+
+
+# -----------------------------------------------------------------------------------------------
+# 1) Create a RavenDB Cloud product (Development tier)
+# -----------------------------------------------------------------------------------------------
+
+- name: Create a RavenDB Cloud product
+  ravendb.ravendb.cloud_product:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    state: present
+    name: "my-product"
+    subdomain: "my-prod"
+    cloud_provider: aws
+    instance_type: "Dev10"
+    region: "us-east-1"
+    release_channel: "Stable62"
+    disk_size: 10
+    storage_type: "SsdStandard"
+    tier: "Development"
+    allowed_ips: ["203.0.113.10/32"]
+
+
+# -----------------------------------------------------------------------------------------------
+# 2) Create with fire-and-forget (return as soon as API accepts; do not wait for Active)
+# -----------------------------------------------------------------------------------------------
+
+- name: Create without waiting for Active
+  ravendb.ravendb.cloud_product:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    state: present
+    name: "later-product"
+    subdomain: "later"
+    cloud_provider: aws
+    instance_type: "Dev10"
+    region: "us-east-1"
+    release_channel: "Stable62"
+    disk_size: 10
+    storage_type: "SsdStandard"
+    tier: "Development"
+    allowed_ips: ["203.0.113.10/32"]
+    wait: false
+
+
+# -----------------------------------------------------------------------------------------------
+# 3) Reconcile drift - change instance type on an existing product
+# -----------------------------------------------------------------------------------------------
+# If "my-product" already exists and its current instance_type differs from the desired value,
+# the module calls /products/instance-type and waits for status Active.
+# If the instance_type already matches, the module is a no-op (changed=false).
+
+- name: Scale up instance type
+  ravendb.ravendb.cloud_product:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    state: present
+    name: "my-product"
+    instance_type: "PB10"
+
+
+# -----------------------------------------------------------------------------------------------
+# 4) Reconcile drift - change storage (must set all four storage attributes together)
+# -----------------------------------------------------------------------------------------------
+# For SsdPremium storage all four fields (disk_size, storage_type, iops, throughput) must be set.
+# The module compares current vs desired; if any differs, it calls /products/storage with the
+# full desired payload and waits for Active.
+
+- name: Resize and tune storage
+  ravendb.ravendb.cloud_product:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    state: present
+    name: "my-product"
+    disk_size: 100
+    storage_type: "SsdPremium"
+    iops: 5000
+    throughput: 250
+
+
+# -----------------------------------------------------------------------------------------------
+# 5) Terminate a product (requires confirm_destroy=true)
+# -----------------------------------------------------------------------------------------------
+
+- name: Terminate product by name
+  ravendb.ravendb.cloud_product:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    state: absent
+    name: "my-product"
+    confirm_destroy: true
+
+
+# -----------------------------------------------------------------------------------------------
+# 6) Terminate a product by id, hide from portal
+# -----------------------------------------------------------------------------------------------
+
+- name: Terminate product by id and hide from portal
+  ravendb.ravendb.cloud_product:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    state: absent
+    product_id: "your-product-id"
+    confirm_destroy: true
+    hide_in_portal: true
+
+
+# -----------------------------------------------------------------------------------------------
+# 7) Custom wait_timeout (give up after 5 minutes instead of default 30)
+# -----------------------------------------------------------------------------------------------
+
+- name: Create with shorter wait timeout
+  ravendb.ravendb.cloud_product:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    state: present
+    name: "short-wait-product"
+    subdomain: "swp"
+    cloud_provider: aws
+    instance_type: "Dev10"
+    region: "us-east-1"
+    release_channel: "Stable62"
+    disk_size: 10
+    storage_type: "SsdStandard"
+    tier: "Development"
+    allowed_ips: ["203.0.113.10/32"]
+    wait_timeout: 300
