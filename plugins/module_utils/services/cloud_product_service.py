@@ -29,5 +29,7 @@ def enrich_with_details(client, products):
     result = []
     for product in products:
         details = get_product_details(client, product["id"])
-        result.append({**product, **details})
+        merged = dict(product)
+        merged.update(details)
+        result.append(merged)
     return result

@@ -132,6 +132,7 @@
         headers: {X-Api-Key: "{{ api_key }}"}
         return_content: true
       register: list_after_check
+      no_log: true
 
     - name: Assert product absent from raw listing
       ansible.builtin.assert:
@@ -251,6 +252,7 @@
         url: "{{ api_url }}/api/v1/products/details/{{ product_id }}"
         headers: {X-Api-Key: "{{ api_key }}"}
       register: details_after_check
+      no_log: true
 
     - name: Assert status still Active
       ansible.builtin.assert:

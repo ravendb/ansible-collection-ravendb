@@ -10,6 +10,9 @@ __metaclass__ = type
 import time
 
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services import cloud_product_service as cps
+from ansible_collections.ravendb.ravendb.plugins.module_utils.services.retry_service import (
+    retry_until, BreakRetry,
+)
 
 
 POLL_INTERVAL_SECONDS = 10
@@ -68,23 +71,26 @@ def is_transitional_to_active(details):
 
 
 def wait_for_product_status(client, product_id, desired, timeout):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        time.sleep(POLL_INTERVAL_SECONDS)
+    time.sleep(POLL_INTERVAL_SECONDS)
 
+    def _poll():
         details = cps.get_product_details(client, product_id)
         status = status_of(details)
-
         if status == desired:
-            return details
-
+            return True, details
         if status in TERMINAL_STATUSES and status != desired:
-            raise RuntimeError(
+            raise BreakRetry(
                 "Product '{}' reached unexpected terminal status '{}' while waiting for '{}'.".format(
-                    product_id, status, desired)
+                    product_id, status, desired),
+                detail=details,
             )
+        return False, details
 
+    result = retry_until(_poll, timeout, POLL_INTERVAL_SECONDS)
+    if result["ok"]:
+        return result["detail"]
     raise RuntimeError(
-        "Timed out after {}s waiting for product '{}' to reach status '{}'.".format(
+        result["error"] if result["error"] not in (None, "timeout")
+        else "Timed out after {}s waiting for product '{}' to reach status '{}'.".format(
             timeout, product_id, desired)
     )

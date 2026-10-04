@@ -76,6 +76,6 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
 - `ravendb.ravendb.cloud_product_info` - list or filter cloud products by id or name, with optional detailed enrichment.
 - `ravendb.ravendb.cloud_product` - create, terminate, and reconcile drift on a cloud product (storage size/type/iops/throughput and instance_type). Immutable fields (tier, cloud_provider, region, subdomain) and fields with no change endpoint (allowed_ips, release_channel) fail loud on drift. `state=absent` is gated behind `confirm_destroy=true`.
 - `ravendb.ravendb.cloud_node` - add, remove, and restart individual nodes on multi-node cloud products (PB and P instance types).
-- `ravendb.ravendb.cloud_certificate` - download the product client PKCS12 certificate. Idempotent by byte-equality; writes with 0o600 and refuses to follow symlinks.
+- `ravendb.ravendb.cloud_certificate` - download the product client certificate bundle (a ZIP archive containing PKCS#12 and PEM files plus a password file) to a local path. Idempotent by byte-equality; writes with 0o600 and refuses to follow symlinks.
 - Documentation fragments `ravendb_cloud` (api_key/api_url/check_mode) and `ravendb_cloud_wait` (wait/wait_timeout).
 - Live-test suite `tests/live/cloud_*.yml` (manual only, not in CI) and unit tests `tests/unit/test_cloud.py`.

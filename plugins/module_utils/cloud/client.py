@@ -7,6 +7,8 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
+import time
+
 
 def _requests():
     try:
@@ -25,6 +27,8 @@ class RavenDBCloudClient(object):
     DEFAULT_API_URL = "https://api.cloud.ravendb.net"
     API_VERSION_PATH = "/api/v1"
     REQUEST_TIMEOUT_SECONDS = 30
+    RATE_LIMIT_MAX_RETRIES = 2
+    RATE_LIMIT_BACKOFF_SECONDS = 1.5
 
     def __init__(self, api_key, api_url=None):
         base = (api_url or self.DEFAULT_API_URL).rstrip("/")
@@ -52,8 +56,15 @@ class RavenDBCloudClient(object):
         }
         if body is not None:
             kwargs["json"] = body
-        response = _requests().request(method, url, **kwargs)
-        if not response.ok:
+
+        response = None
+        for attempt in range(self.RATE_LIMIT_MAX_RETRIES + 1):
+            response = _requests().request(method, url, **kwargs)
+            if response.status_code != 429 or attempt == self.RATE_LIMIT_MAX_RETRIES:
+                break
+            time.sleep(self.RATE_LIMIT_BACKOFF_SECONDS)
+
+        if not 200 <= response.status_code < 300:
             body_text = (response.text or "").strip()
             raise RuntimeError(
                 "{} {} -> {} {}: {}".format(method, url, response.status_code, response.reason, body_text or "<empty body>")

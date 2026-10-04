@@ -58,6 +58,7 @@ try:
     from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.validation import (
         validate_api_key, validate_api_url,
     )
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.common_args import ravendb_cloud_argument_spec
     from ansible_collections.ravendb.ravendb.plugins.module_utils.core.validation import collect_errors
     from ansible_collections.ravendb.ravendb.plugins.module_utils.services import cloud_account_service as cas
     HAS_LIB = True
@@ -67,10 +68,7 @@ except ImportError:
 
 
 def main():
-    argument_spec = dict(
-        api_key=dict(type='str', required=True, no_log=True),
-        api_url=dict(type='str', required=False, default='https://api.cloud.ravendb.net'),
-    )
+    argument_spec = ravendb_cloud_argument_spec()
 
     module = AnsibleModule(argument_spec=argument_spec, supports_check_mode=True)
 

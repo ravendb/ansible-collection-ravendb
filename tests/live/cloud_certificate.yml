@@ -20,7 +20,7 @@
   vars:
     api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
     api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
-    dest: "/tmp/cloud_cert_test.pfx"
+    dest: "/tmp/cloud_cert_test.zip"
 
   tasks:
 
@@ -109,6 +109,19 @@
               - stat_after_first.stat.exists
               - stat_after_first.stat.size == first.bytes_written
 
+        # -------- 15_ZIP_FORMAT (B3: confirm bundle is a ZIP archive, per API contract) --------
+        - name: Read first 4 bytes of the certificate bundle
+          ansible.builtin.slurp:
+            src: "{{ dest }}"
+          register: bundle_bytes
+          no_log: true
+
+        - name: Assert bundle starts with the ZIP local-file-header magic (PK\x03\x04)
+          ansible.builtin.assert:
+            that:
+              - (bundle_bytes.content | b64decode)[:2] == 'PK'
+            fail_msg: "Certificate bundle at {{ dest }} does not start with the ZIP magic bytes 'PK'."
+
 
         # -------- 20_IDEMPOTENCY --------
         - name: Re-run download (should be no-op if API returns same bytes)
@@ -152,6 +165,33 @@
             that:
               - rewritten.changed
               - rewritten.bytes_written == first.bytes_written
+
+
+        # -------- 35_MODE_TIGHTENING (H1: existing 0o644 file must be forced to 0o600) --------
+        - name: Pre-create dest with insecure 0o644 mode
+          ansible.builtin.copy:
+            dest: "{{ dest }}"
+            content: "stale-preexisting"
+            mode: "0644"
+
+        - name: Re-run download over the 0o644 file
+          ravendb.ravendb.cloud_certificate:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            dest: "{{ dest }}"
+          register: tightened
+
+        - name: Stat file after rewrite
+          ansible.builtin.stat:
+            path: "{{ dest }}"
+          register: stat_tightened
+
+        - name: Assert file is now 0o600 (private-key material must not stay world-readable)
+          ansible.builtin.assert:
+            that:
+              - tightened.changed
+              - stat_tightened.stat.mode == "0600"
 
 
         # -------- 40_CHECK_MODE --------
@@ -246,7 +286,7 @@
             api_key: "{{ api_key }}"
             api_url: "{{ api_url }}"
             product_id: "does-not-exist-{{ 1000000 | random }}"
-            dest: "/tmp/should_not_exist_{{ 1000000 | random }}.pfx"
+            dest: "/tmp/should_not_exist_{{ 1000000 | random }}.zip"
           register: bad_pid
           ignore_errors: true
 

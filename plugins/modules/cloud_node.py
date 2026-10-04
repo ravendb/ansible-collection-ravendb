@@ -44,6 +44,14 @@ options:
       - The node tag to operate on. Required for C(action=remove) and C(action=restart).
     required: false
     type: str
+  confirm_destroy:
+    description:
+      - Safety gate for destructive operations. Must be set to C(true) to allow
+        C(action=remove) (which loses the data on the removed node).
+      - Ignored for C(action=add) and C(action=restart).
+    required: false
+    type: bool
+    default: false
 
 seealso:
   - name: RavenDB Cloud documentation
@@ -72,12 +80,13 @@ EXAMPLES = '''
     action: add
     wait: false
 
-- name: Remove a specific node (default wait)
+- name: Remove a specific node (default wait; requires confirm_destroy)
   ravendb.ravendb.cloud_node:
     api_key: "{{ ravendb_cloud_api_key }}"
     product_id: "abc123"
     action: remove
     node_tag: "C"
+    confirm_destroy: true
 
 - name: Remove a node with shorter wait_timeout
   ravendb.ravendb.cloud_node:
@@ -85,6 +94,7 @@ EXAMPLES = '''
     product_id: "abc123"
     action: remove
     node_tag: "C"
+    confirm_destroy: true
     wait_timeout: 600
 
 - name: Fire-and-forget remove
@@ -93,6 +103,7 @@ EXAMPLES = '''
     product_id: "abc123"
     action: remove
     node_tag: "C"
+    confirm_destroy: true
     wait: false
 
 - name: Restart a node (default wait)
@@ -142,6 +153,7 @@ from ansible.module_utils.basic import AnsibleModule, missing_required_lib
 LIB_ERR = None
 try:
     from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.client import RavenDBCloudClient
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.common_args import ravendb_cloud_argument_spec
     from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.validation import (
         validate_api_key, validate_api_url, validate_product_id, validate_positive_int,
     )
@@ -156,15 +168,13 @@ except ImportError:
 
 
 def main():
-    argument_spec = dict(
-        api_key=dict(type='str', required=True, no_log=True),
-        api_url=dict(type='str', required=False, default='https://api.cloud.ravendb.net'),
-        wait=dict(type='bool', default=True),
-        wait_timeout=dict(type='int', default=1800),
+    argument_spec = ravendb_cloud_argument_spec(include_wait=True)
+    argument_spec.update(dict(
         product_id=dict(type='str', required=True),
         action=dict(type='str', required=True, choices=['add', 'remove', 'restart']),
         node_tag=dict(type='str', required=False),
-    )
+        confirm_destroy=dict(type='bool', default=False),
+    ))
 
     module = AnsibleModule(
         argument_spec=argument_spec,
@@ -185,6 +195,12 @@ def main():
     node_tag = module.params.get('node_tag')
     wait = module.params['wait']
     wait_timeout = module.params['wait_timeout']
+    confirm_destroy = module.params['confirm_destroy']
+
+    if action == 'remove' and not confirm_destroy:
+        module.fail_json(msg=(
+            "Refusing to remove node: set confirm_destroy=true to proceed."
+        ))
 
     checks = [
         validate_api_key(api_key),
