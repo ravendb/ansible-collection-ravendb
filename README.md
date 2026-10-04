@@ -75,7 +75,7 @@ These modules manage products on the RavenDB Cloud managed service via its contr
 - `ravendb.ravendb.cloud_product_info`: List or filter cloud products by id or name; optionally enrich with detailed product info.
 - `ravendb.ravendb.cloud_product`: Create, terminate, and reconcile drift on a cloud product. Reconciles storage (disk_size / storage_type / iops / throughput) and instance_type. Immutable fields (tier, cloud_provider, region, subdomain) and fields with no change endpoint (allowed_ips, release_channel) fail loud when drift is detected. `state=absent` requires an explicit `confirm_destroy=true` safety flag.
 - `ravendb.ravendb.cloud_node`: Add, remove, or restart individual nodes on a multi-node cloud product.
-- `ravendb.ravendb.cloud_certificate`: Download the client PKCS12 certificate for a cloud product to a local path. Idempotent by byte-equality; writes with 0o600 permissions.
+- `ravendb.ravendb.cloud_certificate`: Download the client certificate bundle (ZIP containing PKCS#12 and PEM files plus a password file) for a cloud product to a local path. Idempotent by byte-equality; writes with 0o600 permissions.
 
 
 ## ravendb.ravendb Role Tags

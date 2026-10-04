@@ -7,6 +7,14 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
+import time
+
+try:
+    import ipaddress
+    _HAS_IPADDRESS = True
+except ImportError:
+    _HAS_IPADDRESS = False
+
 from ansible_collections.ravendb.ravendb.plugins.module_utils.core.result import ModuleResult
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services import cloud_product_service as cps
 from ansible_collections.ravendb.ravendb.plugins.module_utils.services import cloud_product_lifecycle_service as cpls
@@ -23,6 +31,38 @@ IMMUTABLE_FIELDS = (
     ("region", "region"),
     ("subdomain", "subdomainName"),
 )
+
+def _normalize_cidrs(entries):
+    if not _HAS_IPADDRESS:
+        return set(entries or [])
+    normalized = set()
+    for entry in entries or []:
+        try:
+            normalized.add(str(ipaddress.ip_network(entry, strict=False)))
+        except (ValueError, TypeError):
+            normalized.add(entry)
+    return normalized
+
+
+def _missing_storage_fields(spec):
+    required = ["disk_size", "storage_type"]
+    if (spec.storage_type or "").lower() == "ssdpremium":
+        required += ["iops", "throughput"]
+    return [f for f in required if getattr(spec, f) is None]
+
+
+def _user_storage(current, spec):
+    hw = current.get("hardwareInfo") or {}
+    additional = hw.get("additionalStorage")
+    layout = (getattr(spec, "disk_layout", None) or "").lower()
+    if layout == "singledatadisk":
+        return additional or {}
+    if layout == "rootonly":
+        return hw.get("storage") or {}
+    if additional:
+        return additional
+    return hw.get("storage") or {}
+
 
 PRESENT_BLOCKED_STATUSES = {
     "Terminating": "is currently terminating; cannot ensure present.",
@@ -118,9 +158,12 @@ class CloudProductReconciler(object):
         listing = cps.list_products(self.client)
 
         if spec.product_id is not None:
-            return next((p for p in listing if p.get("id") == spec.product_id), None)
+            matches = cps.filter_products(listing, product_id=spec.product_id)
+            return matches[0] if matches else None
 
-        return next((p for p in listing if p.get("name") == spec.name), None)
+        desired_name = (spec.name or "").lower()
+        matches = [p for p in listing if (p.get("name") or "").lower() == desired_name]
+        return matches[0] if matches else None
 
     def _reconcile_drift(self, spec, current, check_mode):
         product_id = current["id"]
@@ -130,14 +173,7 @@ class CloudProductReconciler(object):
             cur_val = current.get(details_key)
             if desired is None:
                 continue
-            if spec_attr == "cloud_provider":
-                if str(desired).lower() != str(cur_val or "").lower():
-                    return ModuleResult.error(
-                        msg="{} is immutable; current='{}', desired='{}'. Recreate the product to change it.".format(
-                            spec_attr, cur_val, desired
-                        )
-                    )
-            elif desired != cur_val:
+            if str(desired).lower() != str(cur_val or "").lower():
                 return ModuleResult.error(
                     msg="{} is immutable; current='{}', desired='{}'. Recreate the product to change it.".format(
                         spec_attr, cur_val, desired
@@ -146,16 +182,18 @@ class CloudProductReconciler(object):
 
         if spec.allowed_ips is not None:
             cur_ips = (current.get("security") or {}).get("allowedIps") or []
-            if set(spec.allowed_ips) != set(cur_ips):
+            desired_norm = _normalize_cidrs(spec.allowed_ips)
+            current_norm = _normalize_cidrs(cur_ips)
+            if desired_norm != current_norm:
                 return ModuleResult.error(
                     msg=(
                         "allowed_ips drift detected (current={}, desired={}) - changing "
                         "allowed_ips is not supported by this module. Update it in the "
                         "RavenDB Cloud portal."
-                    ).format(list(cur_ips), list(spec.allowed_ips))
+                    ).format(sorted(current_norm), sorted(desired_norm))
                 )
 
-        if spec.release_channel is not None and spec.release_channel != current.get("releaseChannel"):
+        if spec.release_channel is not None and str(spec.release_channel).lower() != str(current.get("releaseChannel") or "").lower():
             return ModuleResult.error(
                 msg=(
                     "release_channel drift detected (current='{}', desired='{}') - changing "
@@ -167,33 +205,49 @@ class CloudProductReconciler(object):
         applied = []
         latest_details = None
 
+        deadline = time.time() + spec.wait_timeout if spec.wait else None
+
+        def _remaining():
+            if deadline is None:
+                return 0
+            return max(0, deadline - time.time())
+
         user_set_any_storage = any(getattr(spec, f) is not None for f in STORAGE_FIELDS)
         if user_set_any_storage:
-            cur_storage = (current.get("hardwareInfo") or {}).get("storage") or {}
+            missing = _missing_storage_fields(spec)
+            if missing:
+                return ModuleResult.error(
+                    msg=(
+                        "Storage change requires all of {} (SsdPremium also requires iops and "
+                        "throughput). Missing: {}."
+                    ).format(list(STORAGE_FIELDS), missing)
+                )
+            cur_storage = _user_storage(current, spec)
             if (spec.disk_size != cur_storage.get("size")
                     or spec.storage_type != cur_storage.get("type")
-                    or spec.iops != cur_storage.get("iops")
-                    or spec.throughput != cur_storage.get("throughput")):
+                    or spec.iops != cur_storage.get("iops")):
                 if check_mode:
                     applied.append("storage (would change)")
                 else:
                     try:
                         cpls.change_storage(self.client, product_id, spec.disk_size, spec.storage_type, spec.iops, spec.throughput)
-                        latest_details = cpls.wait_for_product_status(self.client, product_id, "Active", spec.wait_timeout)
-                        applied.append("storage")
+                        if spec.wait:
+                            latest_details = cpls.wait_for_product_status(self.client, product_id, "Active", _remaining())
+                        applied.append("storage" if spec.wait else "storage (initiated)")
                     except Exception as e:
                         return ModuleResult.error(
                             msg="Drift partial: applied={}; storage FAILED: {}.".format(applied or ["none"], str(e))
                         )
 
-        if spec.instance_type is not None and spec.instance_type != current.get("instanceType"):
+        if spec.instance_type is not None and str(spec.instance_type).lower() != str(current.get("instanceType") or "").lower():
             if check_mode:
                 applied.append("instance_type (would change)")
             else:
                 try:
                     cpls.change_instance_type(self.client, product_id, spec.instance_type)
-                    latest_details = cpls.wait_for_product_status(self.client, product_id, "Active", spec.wait_timeout)
-                    applied.append("instance_type")
+                    if spec.wait:
+                        latest_details = cpls.wait_for_product_status(self.client, product_id, "Active", _remaining())
+                    applied.append("instance_type" if spec.wait else "instance_type (initiated)")
                 except Exception as e:
                     return ModuleResult.error(
                         msg="Drift partial: applied={}; instance_type FAILED: {}.".format(applied or ["none"], str(e))
@@ -206,8 +260,9 @@ class CloudProductReconciler(object):
             )
 
         final = current if check_mode else (latest_details or current)
+        suffix = "" if spec.wait else " (wait=false)"
         return ModuleResult.ok(
-            msg="Product '{}' drift reconciled: {}.".format(spec.name, ", ".join(applied)),
+            msg="Product '{}' drift reconciled: {}{}.".format(spec.name, ", ".join(applied), suffix),
             changed=True, product=final,
         )
 

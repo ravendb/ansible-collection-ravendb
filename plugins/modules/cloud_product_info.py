@@ -94,6 +94,7 @@ from ansible.module_utils.basic import AnsibleModule, missing_required_lib
 LIB_ERR = None
 try:
     from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.client import RavenDBCloudClient
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.common_args import ravendb_cloud_argument_spec
     from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.validation import (
         validate_api_key, validate_api_url, validate_product_id,
     )
@@ -106,13 +107,12 @@ except ImportError:
 
 
 def main():
-    argument_spec = dict(
-        api_key=dict(type='str', required=True, no_log=True),
-        api_url=dict(type='str', required=False, default='https://api.cloud.ravendb.net'),
+    argument_spec = ravendb_cloud_argument_spec()
+    argument_spec.update(dict(
         product_id=dict(type='str', required=False),
         name=dict(type='str', required=False),
         include_details=dict(type='bool', default=False),
-    )
+    ))
 
     module = AnsibleModule(
         argument_spec=argument_spec,

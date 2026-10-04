@@ -115,8 +115,9 @@ options:
   subdomain:
     description:
       - DNS subdomain for the product. Must be short and DNS-safe (lowercase alphanumeric plus hyphen).
-      - Required when creating a new product. Ignored on idempotency or drift reruns for
-        an existing product (subdomain is immutable after create).
+      - Required when creating a new product.
+      - Immutable after create. On reruns, the value must match the product's current subdomain
+        or the module fails loud (compared case-insensitively; the API lowercases the value on create).
       - Distinct from C(name), which is the display name and may contain arbitrary text.
     required: false
     type: str
@@ -130,6 +131,12 @@ options:
     description:
       - Storage throughput. Applies to C(SsdPremium) storage only; ignored for C(SsdStandard).
       - Required (together with C(iops)) when creating or drift-reconciling C(SsdPremium) storage.
+      - Behaviour varies by provider. Azure stores the user-supplied value verbatim.
+        AWS accepts the field but nulls it in the persisted config (the API derives the
+        actual VM throughput from C(iops)) so the C(GET /details) response reports
+        throughput as C(null). To keep reruns idempotent on AWS, this module sends
+        C(throughput) on create but does not drift-compare it; a null echoed from the
+        server will not falsely trigger a storage change.
     required: false
     type: float
   disk_layout:
@@ -245,6 +252,7 @@ from ansible.module_utils.basic import AnsibleModule, missing_required_lib
 LIB_ERR = None
 try:
     from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.client import RavenDBCloudClient
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.common_args import ravendb_cloud_argument_spec
     from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.validation import (
         validate_api_key, validate_api_url, validate_cloud_provider,
         validate_positive_int, validate_product_id,
@@ -259,12 +267,8 @@ except ImportError:
 
 
 def main():
-    argument_spec = dict(
-        api_key=dict(type='str', required=True, no_log=True),
-        api_url=dict(type='str', required=False, default='https://api.cloud.ravendb.net'),
-        wait=dict(type='bool', default=True),
-        wait_timeout=dict(type='int', default=1800),
-
+    argument_spec = ravendb_cloud_argument_spec(include_wait=True)
+    argument_spec.update(dict(
         state=dict(type='str', required=True, choices=['present', 'absent']),
         name=dict(type='str', required=False),
         product_id=dict(type='str', required=False),
@@ -284,7 +288,7 @@ def main():
         throughput=dict(type='float', required=False),
         disk_layout=dict(type='str', required=False),
         deployment_type=dict(type='str', required=False),
-    )
+    ))
 
     module = AnsibleModule(
         argument_spec=argument_spec,
@@ -343,6 +347,12 @@ def main():
 
     if state == 'absent' and not confirm_destroy:
         module.fail_json(msg="Refusing to terminate product: set confirm_destroy=true to proceed.")
+
+    if state == 'present' and tier is not None and str(tier).lower() == 'free':
+        module.fail_json(msg=(
+            "tier='Free' is not supported by this module: Free-tier products can only be "
+            "created from the RavenDB Cloud portal. Use tier=Development or tier=Production."
+        ))
 
     try:
         client = RavenDBCloudClient(api_key=api_key, api_url=api_url)

@@ -10,14 +10,20 @@ __metaclass__ = type
 DOCUMENTATION = '''
 ---
 module: cloud_certificate
-short_description: Download a RavenDB Cloud product client certificate to a local file
+short_description: Download a RavenDB Cloud product client certificate bundle to a local file
 description:
-  - Fetches the client certificate for a RavenDB Cloud product from C(/api/v1/products/security/certificate/{id})
-    and writes it to a local file at C(dest).
-  - Idempotent by byte comparison if the file at C(dest) already matches the certificate returned by
+  - Fetches the client certificate bundle for a RavenDB Cloud product from
+    C(/api/v1/products/security/certificate/{id}) and writes it verbatim to a local file at C(dest).
+  - The API returns a ZIP archive (Content-Type C(application/octet-stream)) containing the client
+    certificate in multiple formats. Typical contents are two PKCS#12 files (one passwordless and one
+    password-protected), a C(PASSWORD.TXT) file with the password for the protected PFX, a
+    C(README.TXT), and a C(PEM/) directory with the certificate and private key as PEM files.
+  - The module writes the ZIP archive as-is. It does not extract it. Callers who need a specific
+    file (for example a C(.pfx) or a PEM key) should unzip C(dest) themselves.
+  - Idempotent by byte comparison. If the file at C(dest) already matches the archive returned by
     the API, no write is performed and C(changed=false).
-  - The certificate is treated as sensitive its bytes are never returned in the module result.
-  - The file is created with restrictive permissions (umask 0o177 -> 0o600).
+  - The archive is treated as sensitive. Its bytes are never returned in the module result.
+  - The file is created with restrictive permissions (mode 0o600) and the module refuses to follow symlinks at C(dest).
 version_added: "1.1.0"
 author: "Omer Ratsaby <omer.ratsaby@ravendb.net> (@thegoldenplatypus)"
 
@@ -27,12 +33,13 @@ extends_documentation_fragment:
 options:
   product_id:
     description:
-      - The RavenDB Cloud product id whose certificate should be downloaded.
+      - The RavenDB Cloud product id whose certificate bundle should be downloaded.
     required: true
     type: str
   dest:
     description:
-      - Absolute path to the local file where the certificate will be written.
+      - Absolute path to the local file where the certificate bundle will be written.
+      - The file is a ZIP archive; a C(.zip) extension is recommended.
     required: true
     type: path
 
@@ -43,11 +50,11 @@ seealso:
 '''
 
 EXAMPLES = '''
-- name: Download RavenDB Cloud product certificate
+- name: Download RavenDB Cloud product certificate bundle
   ravendb.ravendb.cloud_certificate:
     api_key: "{{ ravendb_cloud_api_key }}"
     product_id: "your-product-id"
-    dest: "/etc/ravendb/cloud/admin.client.pfx"
+    dest: "/etc/ravendb/cloud/client-certificate.zip"
 '''
 
 RETURN = '''
@@ -58,12 +65,12 @@ changed:
   sample: true
 
 dest:
-  description: Absolute path the certificate was written to (or would have been written to in check mode).
+  description: Absolute path the certificate bundle was written to (or would have been written to in check mode).
   type: str
   returned: always
 
 bytes_written:
-  description: Size in bytes of the certificate written (or that would be written in check mode).
+  description: Size in bytes of the ZIP archive written (or that would be written in check mode).
   type: int
   returned: always
 '''
@@ -74,6 +81,7 @@ from ansible.module_utils.basic import AnsibleModule, missing_required_lib
 LIB_ERR = None
 try:
     from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.client import RavenDBCloudClient
+    from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.common_args import ravendb_cloud_argument_spec
     from ansible_collections.ravendb.ravendb.plugins.module_utils.cloud.validation import (
         validate_api_key, validate_api_url, validate_product_id,
     )
@@ -86,12 +94,11 @@ except ImportError:
 
 
 def main():
-    argument_spec = dict(
-        api_key=dict(type='str', required=True, no_log=True),
-        api_url=dict(type='str', required=False, default='https://api.cloud.ravendb.net'),
+    argument_spec = ravendb_cloud_argument_spec()
+    argument_spec.update(dict(
         product_id=dict(type='str', required=True),
         dest=dict(type='path', required=True),
-    )
+    ))
 
     module = AnsibleModule(argument_spec=argument_spec, supports_check_mode=True)
 

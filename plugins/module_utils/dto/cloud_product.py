@@ -63,6 +63,8 @@ class CloudProductSpec(object):
             payload["subdomainName"] = self.subdomain
         if self.iops is not None:
             payload["iops"] = self.iops
+        if self.throughput is not None:
+            payload["throughput"] = self.throughput
         if self.disk_layout is not None:
             payload["diskLayout"] = self.disk_layout
         if self.deployment_type is not None:

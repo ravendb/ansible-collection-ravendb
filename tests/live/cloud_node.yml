@@ -233,6 +233,7 @@
             product_id: "{{ product_id }}"
             action: remove
             node_tag: "{{ new_tag }}"
+            confirm_destroy: true
           check_mode: yes
           register: remove_check
 
@@ -271,6 +272,7 @@
             product_id: "{{ product_id }}"
             action: remove
             node_tag: "{{ new_tag }}"
+            confirm_destroy: true
           register: removed
 
         - name: Assert remove reported changed + Active
@@ -327,6 +329,7 @@
             product_id: "{{ product_id }}"
             action: remove
             node_tag: "{{ fnf_new_tag }}"
+            confirm_destroy: true
             wait: false
           register: fnf_removed
 
@@ -355,6 +358,25 @@
         - name: Pace throttle
           ansible.builtin.pause: {seconds: 2}
 
+        - name: Remove without confirm_destroy (safety gate must reject)
+          ravendb.ravendb.cloud_node:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ product_id }}"
+            action: remove
+            node_tag: "A"
+          register: no_confirm
+          ignore_errors: true
+
+        - name: Assert remove without confirm_destroy rejected
+          ansible.builtin.assert:
+            that:
+              - no_confirm is failed
+              - "'confirm_destroy' in (no_confirm.msg | lower)"
+
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 2}
+
         - name: Remove a non-existent tag (must fail loud)
           ravendb.ravendb.cloud_node:
             api_key: "{{ api_key }}"
@@ -362,6 +384,7 @@
             product_id: "{{ product_id }}"
             action: remove
             node_tag: "ZZ"
+            confirm_destroy: true
           register: bad_remove
           ignore_errors: true
 

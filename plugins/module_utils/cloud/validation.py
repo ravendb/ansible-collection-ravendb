@@ -54,7 +54,7 @@ def validate_api_url(url):
 
 
 def is_valid_product_id(value):
-    return isinstance(value, str) and bool(_PRODUCT_ID_RE.match(value))
+    return isinstance(value, str) and bool(_PRODUCT_ID_RE.fullmatch(value))
 
 
 def validate_product_id(value):

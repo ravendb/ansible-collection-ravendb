@@ -67,6 +67,7 @@
     product_id: "your-product-id"
     action: remove
     node_tag: "C"
+    confirm_destroy: true
 
 
 # -----------------------------------------------------------------------------------------------

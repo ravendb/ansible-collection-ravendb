@@ -35,9 +35,9 @@
         that: [api_key | length > 0]
         fail_msg: "RAVEN_CLOUD_API_KEY env var must be set."
 
-    - name: Set product name
+    - name: Set product name (MixedCase on purpose - proves N1 case-insensitive lookup on rerun)
       ansible.builtin.set_fact:
-        product_name: "ansible-live-drift-{{ provider }}-{{ sfx }}"
+        product_name: "ansible-live-Drift-{{ provider }}-{{ sfx }}"
         subdomain: "drft"
 
     - name: Show test product name (for manual cleanup if interrupted)
@@ -139,7 +139,7 @@
         disk_size: "{{ disk_size }}"
         storage_type: "{{ storage_type }}"
         tier: "Development"
-        allowed_ips: ["192.0.2.1/32"]
+        allowed_ips: ["10.1.2.3/24"]
         wait_timeout: 1800
       register: created
 
@@ -160,11 +160,11 @@
     # -------- drift tests wrapped in block/always for guaranteed cleanup --------
     - block:
 
-        # -------- 30_STORAGE_INCOMPLETE (API-side validation) --------
+        # -------- 30_STORAGE_INCOMPLETE (client-side pre-validation, N2) --------
         - name: Pace throttle
           ansible.builtin.pause: {seconds: 15}
-    
-        - name: Storage drift with only iops set (API should reject the incomplete payload)
+
+        - name: Storage drift with only iops set (module must reject locally with a clear message)
           ravendb.ravendb.cloud_product:
             api_key: "{{ api_key }}"
             api_url: "{{ api_url }}"
@@ -173,11 +173,14 @@
             iops: 5000
           register: storage_incomplete
           ignore_errors: true
-    
-        - name: Assert storage-incomplete rejected (by API, not by module)
+
+        - name: Assert storage-incomplete rejected client-side with useful message
           ansible.builtin.assert:
             that:
               - storage_incomplete is failed
+              - "'missing' in (storage_incomplete.msg | lower)"
+              - "'disk_size' in storage_incomplete.msg"
+              - "'storage_type' in storage_incomplete.msg"
     
     
         # -------- 40_STORAGE_DRIFT_CHECK_MODE --------
@@ -209,6 +212,7 @@
             url: "{{ api_url }}/api/v1/products/details/{{ product_id }}"
             headers: {X-Api-Key: "{{ api_key }}"}
           register: after_storage_check
+          no_log: true
     
         - name: Assert storage size unchanged
           ansible.builtin.assert:
@@ -259,6 +263,28 @@
               - "'no drift' in storage_drift_again.msg | lower"
     
     
+        # -------- 55_CASE_VARIATION_RERUN (N1 name, N3 subdomain, N7 release_channel) --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+
+        - name: Rerun with case-flipped name / subdomain / release_channel
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name | lower }}"          # created as MixedCase
+            subdomain: "{{ subdomain | upper }}"        # created lowercase; API stores lowercase
+            release_channel: "{{ release_channel | lower }}"  # API returns PascalCase
+            allowed_ips: ["10.1.2.3/24"]                # N4: host bits set; API stores 10.1.2.0/24
+          register: case_flip_rerun
+
+        - name: Assert case-flipped rerun is no-drift (proves N1 + N3 + N7 + N4)
+          ansible.builtin.assert:
+            that:
+              - not case_flip_rerun.changed
+              - "'no drift' in (case_flip_rerun.msg | lower)"
+
+
         # -------- 60_INSTANCE_TYPE_DRIFT_CHECK_MODE --------
         - name: Pace throttle
           ansible.builtin.pause: {seconds: 15}
@@ -287,37 +313,52 @@
             url: "{{ api_url }}/api/v1/products/details/{{ product_id }}"
             headers: {X-Api-Key: "{{ api_key }}"}
           register: after_itype_check
+          no_log: true
     
         - name: Assert instance_type unchanged
           ansible.builtin.assert:
             that: [after_itype_check.json.instanceType == baseline_instance]
     
     
-        # -------- 70_INSTANCE_TYPE_DRIFT_REAL --------
+        # -------- 70_INSTANCE_TYPE_DRIFT_REAL_WAIT_FALSE (N8: drift path honours wait=false) --------
+        # Combines the "real instance_type drift" check with the N8 wait=false proof.
+        # Storage changes can't be used for wait=false testing because the API enforces a
+        # 6h cool-down between storage mutations per product; instance_type has no such gate.
         - name: Pace throttle
           ansible.builtin.pause: {seconds: 15}
-    
-        - name: Instance type drift real
+
+        - name: Instance type drift real with wait=false (fire and poll manually)
           ravendb.ravendb.cloud_product:
             api_key: "{{ api_key }}"
             api_url: "{{ api_url }}"
             state: present
             name: "{{ product_name }}"
             instance_type: "{{ target_instance_type }}"
-            wait_timeout: 1800
+            wait: false
           register: itype_drift_real
-    
-        - name: Assert instance_type drift applied
+
+        - name: Assert immediate return with (wait=false) marker (N8 proof)
           ansible.builtin.assert:
             that:
               - itype_drift_real.changed
               - "'instance_type' in (itype_drift_real.msg | lower)"
-              - itype_drift_real.product.status == "Active"
-              - itype_drift_real.product.instanceType == target_instance_type
-    
+              - "'wait=false' in (itype_drift_real.msg | lower)"
+
+        - name: Manually poll until product reaches Active with target instance_type
+          ansible.builtin.uri:
+            url: "{{ api_url }}/api/v1/products/details/{{ product_id }}"
+            headers: {X-Api-Key: "{{ api_key }}"}
+          register: itype_wait_false_poll
+          no_log: true
+          until:
+            - itype_wait_false_poll.json.status == "Active"
+            - itype_wait_false_poll.json.instanceType == target_instance_type
+          retries: 60
+          delay: 10
+
         - name: Pace throttle
           ansible.builtin.pause: {seconds: 15}
-    
+
         - name: Re-run instance_type drift (idempotent)
           ravendb.ravendb.cloud_product:
             api_key: "{{ api_key }}"
@@ -326,7 +367,7 @@
             name: "{{ product_name }}"
             instance_type: "{{ target_instance_type }}"
           register: itype_drift_again
-    
+
         - name: Assert instance_type idempotent
           ansible.builtin.assert:
             that:
