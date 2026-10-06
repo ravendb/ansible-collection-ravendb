@@ -169,8 +169,7 @@ jobs:
       
       - name: Run Debian unsecured scenario
         working-directory: roles/ravendb_node
-        # TODO(RavenDB-27645): revert `-vv
-        run: molecule -vv test -s unsecured
+        run: molecule test -s unsecured
  
       - name: Run Debian-12 unsecured scenario
         working-directory: roles/ravendb_node

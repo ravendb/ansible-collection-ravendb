@@ -1,3 +1,10 @@
+- name: Ensure apt lists directory exists [Debian]
+  become: true
+  ansible.builtin.file:
+    path: /var/lib/apt/lists
+    state: directory
+    mode: "0755"
+
 - name: Install prerequisites [Debian]
   become: true
   ansible.builtin.apt:
@@ -9,7 +16,7 @@
     - jq
     - unzip
     - openssl
-    - ca-certificates 
+    - ca-certificates
 
 - name: Install ICU for tarball path [Debian non-Ubuntu]
   become: true
