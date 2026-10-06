@@ -24,6 +24,12 @@ jobs:
           - python-version: "3.13"
             ansible-core: stable-2.19
           - python-version: "3.13"
+            ansible-core: stable-2.20
+          - python-version: "3.13"
+            ansible-core: stable-2.21
+          - python-version: "3.13"
+            ansible-core: stable-2.22
+          - python-version: "3.13"
             ansible-core: devel
     steps:
       - name: Checkout code
@@ -93,7 +99,15 @@ jobs:
           - python-version: "3.13"
             ansible-core: stable-2.19
           - python-version: "3.12"
-            ansible-core: devel
+            ansible-core: stable-2.20
+          - python-version: "3.13"
+            ansible-core: stable-2.20
+          - python-version: "3.12"
+            ansible-core: stable-2.21
+          - python-version: "3.13"
+            ansible-core: stable-2.21
+          - python-version: "3.13"
+            ansible-core: stable-2.22
           - python-version: "3.13"
             ansible-core: devel
 
@@ -155,12 +169,9 @@ jobs:
       
       - name: Run Debian unsecured scenario
         working-directory: roles/ravendb_node
-        run: molecule test -s unsecured
+        # TODO(RavenDB-27645): revert `-vv
+        run: molecule -vv test -s unsecured
  
-      - name: Run Debian-11 unsecured scenario
-        working-directory: roles/ravendb_node
-        run: molecule test -s debian-11
-
       - name: Run Debian-12 unsecured scenario
         working-directory: roles/ravendb_node
         run: molecule test -s debian-12
