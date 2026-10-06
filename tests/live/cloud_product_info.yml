@@ -1,0 +1,249 @@
+---
+# Live test for ravendb.ravendb.cloud_product_info
+# Not run in CI. Drive manually against a sandbox / real RavenDB Cloud account.
+#
+# Self-contained: creates 1 Dev10 aws product for the filter tests, then terminates it.
+# Cheapest available SKU (2 vCPU, 0.5 GB RAM, 10 GB disk). Total runtime ~10-12 min.
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY  - API key with read+write access on the target account
+#   RAVEN_CLOUD_API_URL  - Optional; defaults to https://api.cloud.ravendb.net
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_product_info.yml -v
+#
+
+- name: Live test cloud_product_info
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+
+  tasks:
+
+    # -------- init --------
+    - name: Randomize identifiers
+      ansible.builtin.set_fact:
+        missing_id: "missing-{{ 100000000 | random }}"
+        missing_name: "missing-name-{{ 100000000 | random }}"
+        throwaway_name: "info-test-{{ 100000000 | random }}"
+        throwaway_subdomain: "info"
+
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that:
+          - api_key | length > 0
+        fail_msg: "RAVEN_CLOUD_API_KEY env var is not set."
+
+
+
+    # -------- 05_SETUP: create throwaway Dev10 aws product --------
+    - name: Discover aws instance_types in us-east-1
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: instance_types
+        cloud_provider: aws
+        region: "us-east-1"
+      register: aws_itypes
+
+    - name: Pick Free-tier instance
+      ansible.builtin.set_fact:
+        dev_instance: "{{ (aws_itypes.result.instanceTypes | selectattr('tier', 'equalto', 'Development') | list)[0] }}"
+        throwaway_region: "us-east-1"
+
+    - name: Create throwaway product (waits until Active, ~5-8 min)
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ throwaway_name }}"
+        subdomain: "{{ throwaway_subdomain }}"
+        cloud_provider: aws
+        region: "{{ throwaway_region }}"
+        tier: "Development"
+        instance_type: "{{ dev_instance.name }}"
+        release_channel: "Stable62"
+        disk_size: "{{ dev_instance.parameters.availableDiskSizes[0] }}"
+        storage_type: "{{ dev_instance.parameters.availableStorageTypes[0].name }}"
+        allowed_ips: ["192.0.2.1/32"]
+      register: throwaway_create
+
+    - name: Capture throwaway product_id
+      ansible.builtin.set_fact:
+        throwaway_id: "{{ throwaway_create.product.id }}"
+
+
+    # -------- filter tests wrapped in block/always for guaranteed cleanup --------
+    - block:
+
+        # -------- 10_LIST --------
+        - name: List all products (no filter)
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+          register: list_all
+
+        - name: Assert list_all shape and includes throwaway
+          ansible.builtin.assert:
+            that:
+              - not list_all.changed
+              - list_all.products is iterable
+              - list_all.count == (list_all.products | length)
+              - list_all.count >= 1
+              - throwaway_id in (list_all.products | map(attribute='id') | list)
+
+        - name: Diagnostic - dump full listing
+          ansible.builtin.debug:
+            msg:
+              count: "{{ list_all.count }}"
+              products: "{{ list_all.products }}"
+
+        - name: Diagnostic - dump one product shape
+          ansible.builtin.debug:
+            msg:
+              first_product: "{{ list_all.products[0] }}"
+
+
+        # -------- 20_FILTER --------
+        - name: Filter by product_id (existing)
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ throwaway_id }}"
+          register: by_id
+
+        - name: Assert by_id returns exactly one matching product
+          ansible.builtin.assert:
+            that:
+              - not by_id.changed
+              - by_id.count == 1
+              - by_id.products[0].id == throwaway_id
+
+        - name: Filter by name (existing)
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            name: "{{ throwaway_name }}"
+          register: by_name
+
+        - name: Assert by_name returns at least one and all match name
+          ansible.builtin.assert:
+            that:
+              - not by_name.changed
+              - by_name.count >= 1
+              - by_name.products | map(attribute='name') | unique | list == [throwaway_name]
+
+        - name: Filter by product_id (non-existent)
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ missing_id }}"
+          register: by_id_missing
+
+        - name: Assert non-existent product_id returns empty
+          ansible.builtin.assert:
+            that:
+              - not by_id_missing.changed
+              - by_id_missing.count == 0
+              - by_id_missing.products == []
+
+        - name: Filter by name (non-existent)
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            name: "{{ missing_name }}"
+          register: by_name_missing
+
+        - name: Assert non-existent name returns empty
+          ansible.builtin.assert:
+            that:
+              - not by_name_missing.changed
+              - by_name_missing.count == 0
+
+
+        # -------- 30_INCLUDE_DETAILS --------
+        - name: Lookup by id without details
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ throwaway_id }}"
+            include_details: false
+          register: lean
+
+        - name: Lookup by id with details
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "{{ throwaway_id }}"
+            include_details: true
+          register: rich
+
+        - name: Assert rich has at least the same keys as lean (enrichment is additive)
+          ansible.builtin.assert:
+            that:
+              - rich.count == 1
+              - (lean.products[0].keys() | list) | difference(rich.products[0].keys() | list) | length == 0
+
+        - name: Diagnostic - keys added by include_details
+          ansible.builtin.debug:
+            msg:
+              added_keys: "{{ (rich.products[0].keys() | list) | difference(lean.products[0].keys() | list) }}"
+
+
+        # -------- 40_ERRORS --------
+        - name: Mutually exclusive filters (product_id + name)
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            product_id: "x"
+            name: "y"
+          register: mutex_res
+          ignore_errors: true
+
+        - name: Assert mutually exclusive failure
+          ansible.builtin.assert:
+            that:
+              - mutex_res is failed
+              - "'mutually exclusive' in (mutex_res.msg | lower)"
+
+        - name: Empty api_key
+          ravendb.ravendb.cloud_product_info:
+            api_key: ""
+            api_url: "{{ api_url }}"
+          register: bad_key
+          ignore_errors: true
+
+        - name: Assert empty api_key rejected
+          ansible.builtin.assert:
+            that:
+              - bad_key is failed
+              - "'api_key' in (bad_key.msg | lower)"
+
+        - name: Invalid api_url
+          ravendb.ravendb.cloud_product_info:
+            api_key: "{{ api_key }}"
+            api_url: "not-a-url"
+          register: bad_url
+          ignore_errors: true
+
+        - name: Assert invalid api_url rejected
+          ansible.builtin.assert:
+            that:
+              - bad_url is failed
+              - "'invalid api_url' in (bad_url.msg | lower)"
+
+      always:
+
+        # -------- 99_CLEANUP: terminate throwaway product no matter what --------
+        - name: Terminate throwaway product
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: absent
+            product_id: "{{ throwaway_id }}"
+            confirm_destroy: true
+            hide_in_portal: true
+          when: throwaway_id is defined

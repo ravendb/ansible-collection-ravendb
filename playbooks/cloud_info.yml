@@ -1,0 +1,98 @@
+##################################################################################################
+# playbooks/cloud_info.yml
+#
+# Purpose: Demonstrate common usage patterns for the RavenDB Cloud read-only (info) modules
+#
+# What it does:
+#   - Shows how to query account-level info from RavenDB Cloud
+#   - Shows how to list and look up Cloud products (by id or name)
+#   - Shows how to enrich product info with full details
+#   - Shows how to query metadata: regions, instance types, release channels
+#
+# Notes:
+#   - Authentication is performed via the C(X-Api-Key) header. Provide your API key in C(api_key).
+#   - These modules are read-only and always return C(changed=false).
+#
+# See module documentation for more details:
+#   - plugins/modules/cloud_account_info.py
+#   - plugins/modules/cloud_product_info.py
+#   - plugins/modules/cloud_metadata_info.py
+##################################################################################################
+
+
+# -----------------------------------------------------------------------------------------------
+# 1) Account info
+# -----------------------------------------------------------------------------------------------
+
+- name: Get RavenDB Cloud account info
+  ravendb.ravendb.cloud_account_info:
+    api_key: "{{ ravendb_cloud_api_key }}"
+  register: account_result
+
+- name: Show account domain
+  ansible.builtin.debug:
+    msg: "{{ account_result.account }}"
+
+
+# -----------------------------------------------------------------------------------------------
+# 2) List all products
+# -----------------------------------------------------------------------------------------------
+
+- name: List all RavenDB Cloud products
+  ravendb.ravendb.cloud_product_info:
+    api_key: "{{ ravendb_cloud_api_key }}"
+  register: all_products
+
+
+# -----------------------------------------------------------------------------------------------
+# 3) Look up a product by id (with full details)
+# -----------------------------------------------------------------------------------------------
+
+- name: Look up product by id, with full details
+  ravendb.ravendb.cloud_product_info:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    product_id: "your-product-id"
+    include_details: true
+
+
+# -----------------------------------------------------------------------------------------------
+# 4) Look up products by name
+# -----------------------------------------------------------------------------------------------
+
+- name: Look up products by name
+  ravendb.ravendb.cloud_product_info:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    name: "production-cluster"
+
+
+# -----------------------------------------------------------------------------------------------
+# 5) Metadata - list regions for a provider
+# -----------------------------------------------------------------------------------------------
+
+- name: List AWS regions
+  ravendb.ravendb.cloud_metadata_info:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    query: regions
+    cloud_provider: aws
+
+
+# -----------------------------------------------------------------------------------------------
+# 6) Metadata - list instance types in a region
+# -----------------------------------------------------------------------------------------------
+
+- name: List GCP instance types in us-central1
+  ravendb.ravendb.cloud_metadata_info:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    query: instance_types
+    cloud_provider: gcp
+    region: us-central1
+
+
+# -----------------------------------------------------------------------------------------------
+# 7) Metadata - list release channels
+# -----------------------------------------------------------------------------------------------
+
+- name: List release channels
+  ravendb.ravendb.cloud_metadata_info:
+    api_key: "{{ ravendb_cloud_api_key }}"
+    query: release_channels

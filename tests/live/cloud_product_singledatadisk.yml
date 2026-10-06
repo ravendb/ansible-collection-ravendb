@@ -1,0 +1,241 @@
+---
+# Live test: SingleDataDisk layout + SsdPremium storage (Production tier only).
+#
+# Covers two regressions gregolsky flagged in review:
+#   * B1: reconciler must read hardwareInfo.additionalStorage (not .storage)
+#         when disk_layout=SingleDataDisk, otherwise every rerun POSTs storage
+#         and the API replies "No changes will be applied."
+#   * B2: create payload must include `throughput` or SsdPremium creates fail
+#         (Azure) or drift every rerun (AWS - server-side "no change" check
+#         ignores throughput).
+#
+# Server-side constraints (from Cloud.RavenDB.Core/Validation/ProductValidator.cs):
+#   * SingleDataDisk requires ProductTier.Production
+#   * SingleDataDisk requires StorageType.SsdPremium
+#   * On SingleDataDisk, storage_type change is rejected
+#
+# WARNING: Creates a Production-tier PB-class product with SsdPremium storage.
+# Real billing. Runtime ~30 min. Terminate on interrupt (cleanup is in always block).
+#
+# Required env vars:
+#   RAVEN_CLOUD_API_KEY
+#   RAVEN_CLOUD_API_URL  (optional; defaults to https://api.cloud.ravendb.net)
+#
+# Usage:
+#   ansible-playbook tests/live/cloud_product_singledatadisk.yml -v
+#
+
+- name: Live test cloud_product SingleDataDisk + SsdPremium + throughput
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    api_key: "{{ lookup('env', 'RAVEN_CLOUD_API_KEY') }}"
+    api_url: "{{ lookup('env', 'RAVEN_CLOUD_API_URL') | default('https://api.cloud.ravendb.net', true) }}"
+    provider: aws
+    region: us-east-1
+    instance_type: PB10
+    subdomain: "sdd"
+    disk_size_initial: 50
+    iops_value: 4000
+    throughput_value: 250.0
+    sfx: "{{ 1000000 | random }}"
+
+  tasks:
+
+    - name: Sanity check env vars
+      ansible.builtin.assert:
+        that: [api_key | length > 0]
+        fail_msg: "RAVEN_CLOUD_API_KEY env var must be set."
+
+    - name: Set product name
+      ansible.builtin.set_fact:
+        product_name: "ansible-live-sdd-{{ sfx }}"
+
+    - name: Show test product name (for manual cleanup if interrupted)
+      ansible.builtin.debug:
+        msg: "product_name: {{ product_name }}"
+
+    - name: Discover release channels
+      ravendb.ravendb.cloud_metadata_info:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        query: release_channels
+      register: rc_result
+
+    - name: Pick release channel
+      ansible.builtin.set_fact:
+        release_channel: "{{ rc_result.result.releaseChannels[0].name }}"
+
+
+    # -------- 20_CREATE (B2: throughput must reach server) --------
+    - name: Create Production PB SsdPremium + SingleDataDisk product
+      ravendb.ravendb.cloud_product:
+        api_key: "{{ api_key }}"
+        api_url: "{{ api_url }}"
+        state: present
+        name: "{{ product_name }}"
+        subdomain: "{{ subdomain }}"
+        cloud_provider: "{{ provider }}"
+        instance_type: "{{ instance_type }}"
+        region: "{{ region }}"
+        release_channel: "{{ release_channel }}"
+        disk_size: "{{ disk_size_initial }}"
+        storage_type: "SsdPremium"
+        iops: "{{ iops_value }}"
+        throughput: "{{ throughput_value }}"
+        disk_layout: "SingleDataDisk"
+        tier: "Production"
+        allowed_ips: ["192.0.2.1/32"]
+        wait_timeout: 1800
+      register: created
+
+    - name: Assert create succeeded - B2 proof - no Throughput is required server error
+      ansible.builtin.assert:
+        that:
+          - created.changed
+          - created.product.status == "Active"
+          - created.product.id | length > 0
+
+    - name: Capture product id
+      ansible.builtin.set_fact:
+        product_id: "{{ created.product.id }}"
+
+    - block:
+
+        # -------- 30_ASSERT_SERVER_SHAPE (B1 + B2: server persisted right disk + throughput) --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+
+        - name: Fetch details to confirm server-side shape
+          ansible.builtin.uri:
+            url: "{{ api_url }}/api/v1/products/details/{{ product_id }}"
+            headers: {X-Api-Key: "{{ api_key }}"}
+          register: details
+          no_log: true
+
+        - name: Assert user disk is on additionalStorage (B1 pre-condition)
+          ansible.builtin.assert:
+            that:
+              - details.json.hardwareInfo.additionalStorage is defined
+              - details.json.hardwareInfo.additionalStorage.size == (disk_size_initial | int)
+              - details.json.hardwareInfo.additionalStorage.type == "SsdPremium"
+
+        - name: Assert iops matches what we sent
+          ansible.builtin.assert:
+            that:
+              - details.json.hardwareInfo.additionalStorage.iops == (iops_value | int)
+
+        - name: Pick a bump size from the API's own availableDiskSizes list
+          ansible.builtin.set_fact:
+            disk_size_bump: >-
+              {{
+                (details.json.hardwareInfo.additionalStorage.availableDiskSizes
+                  | reject('equalto', disk_size_initial | int)
+                  | list)[0]
+              }}
+
+        - name: Show chosen bump size
+          ansible.builtin.debug:
+            msg: "disk_size_initial={{ disk_size_initial }}, disk_size_bump={{ disk_size_bump }}"
+          # Note: AWS does not echo back throughput in the response (per API docs it
+          # derives from iops server-side and nulls user input). The real B2 proof is
+          # (1) create succeeds without "throughput is required" errors (above), and
+          # (2) idempotent rerun does not falsely drift on the null-echoed throughput
+          # (asserted in 40_RERUN_IDEMPOTENT below).
+
+
+        # -------- 40_RERUN_IDEMPOTENT (B1: reconciler must read additionalStorage) --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+
+        - name: Rerun with identical spec (must be no-drift)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            disk_size: "{{ disk_size_initial }}"
+            storage_type: "SsdPremium"
+            iops: "{{ iops_value }}"
+            throughput: "{{ throughput_value }}"
+            disk_layout: "SingleDataDisk"
+          register: rerun
+
+        - name: Assert idempotent rerun (B1 proof - would have looped forever without the fix)
+          ansible.builtin.assert:
+            that:
+              - not rerun.changed
+              - "'no drift' in rerun.msg | lower"
+
+
+        # -------- 50_DISK_SIZE_BUMP (drift path on additionalStorage) --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+
+        - name: Bump disk_size on the data disk
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            disk_size: "{{ disk_size_bump }}"
+            storage_type: "SsdPremium"
+            iops: "{{ iops_value }}"
+            throughput: "{{ throughput_value }}"
+            disk_layout: "SingleDataDisk"
+            wait_timeout: 1800
+          register: bumped
+
+        - name: Assert size bump applied to additionalStorage
+          ansible.builtin.assert:
+            that:
+              - bumped.changed
+              - "'storage' in (bumped.msg | lower)"
+              - bumped.product.status == "Active"
+              - bumped.product.hardwareInfo.additionalStorage.size == (disk_size_bump | int)
+
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+
+        - name: Rerun after bump (must be no-drift again)
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: present
+            name: "{{ product_name }}"
+            disk_size: "{{ disk_size_bump }}"
+            storage_type: "SsdPremium"
+            iops: "{{ iops_value }}"
+            throughput: "{{ throughput_value }}"
+            disk_layout: "SingleDataDisk"
+          register: rerun_after_bump
+
+        - name: Assert idempotent after bump
+          ansible.builtin.assert:
+            that:
+              - not rerun_after_bump.changed
+              - "'no drift' in rerun_after_bump.msg | lower"
+
+
+      always:
+
+        # -------- 99_CLEANUP --------
+        - name: Pace throttle
+          ansible.builtin.pause: {seconds: 15}
+
+        - name: Terminate the Production product
+          ravendb.ravendb.cloud_product:
+            api_key: "{{ api_key }}"
+            api_url: "{{ api_url }}"
+            state: absent
+            product_id: "{{ product_id }}"
+            confirm_destroy: true
+            wait_timeout: 1800
+          register: cleaned_up
+
+        - name: Assert cleanup terminated the product
+          ansible.builtin.assert:
+            that:
+              - cleaned_up.changed
+              - cleaned_up.product.status == "Terminated"
