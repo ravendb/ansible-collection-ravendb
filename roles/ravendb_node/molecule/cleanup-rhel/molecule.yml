@@ -8,7 +8,7 @@ driver:
     '44443': 443
 platforms:
   - name: centos
-    image: thegoldenplatypus/custom-centos9-python39-privileged:latest
+    image: thegoldenplatypus/custom-centos9-python311-privileged:latest
     pre_build_image: true
     privileged: true
     volumes:
