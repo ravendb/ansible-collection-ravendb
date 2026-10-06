@@ -1,0 +1,52 @@
+FROM quay.io/centos/centos:stream9
+LABEL maintainer="thegoldenplatypus"
+ENV container=docker
+
+ENV pip_packages="ansible"
+
+# Stream 9 base ships without systemd; install it (and the other prerequisites)
+# BEFORE touching /lib/systemd/system paths, otherwise the cleanup globs below
+# have nothing to glob against and the shell cascades into coreutils errors.
+RUN dnf -y install rpm centos-release dnf-plugins-core \
+ && dnf -y update \
+ && dnf -y config-manager --set-enabled crb \
+ && dnf -y install \
+      systemd \
+      epel-release \
+      initscripts \
+      sudo \
+      which \
+      hostname \
+      libyaml-devel \
+      python3.11 \
+      python3.11-pip \
+      python3.11-pyyaml \
+ && dnf clean all
+
+# Trim systemd units that break inside a container (same shape as the centos8 image).
+RUN (cd /lib/systemd/system/sysinit.target.wants/; for i in *; do [ $i == \
+systemd-tmpfiles-setup.service ] || rm -f $i; done); \
+rm -f /lib/systemd/system/multi-user.target.wants/*;\
+rm -f /etc/systemd/system/*.wants/*;\
+rm -f /lib/systemd/system/local-fs.target.wants/*; \
+rm -f /lib/systemd/system/sockets.target.wants/*udev*; \
+rm -f /lib/systemd/system/sockets.target.wants/*initctl*; \
+rm -f /lib/systemd/system/basic.target.wants/*;\
+rm -f /lib/systemd/system/anaconda.target.wants/*;
+
+RUN pip3.11 install --upgrade pip
+
+RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+ && alternatives --set python3 /usr/bin/python3.11 \
+ && alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+ && alternatives --set python /usr/bin/python3.11
+
+RUN pip3.11 install $pip_packages
+
+RUN sed -i -e 's/^\(Defaults\s*requiretty\)/#--- \1/'  /etc/sudoers
+
+RUN mkdir -p /etc/ansible
+RUN echo -e '[local]\nlocalhost ansible_connection=local' > /etc/ansible/hosts
+
+VOLUME ["/sys/fs/cgroup"]
+CMD ["/usr/lib/systemd/systemd"]
