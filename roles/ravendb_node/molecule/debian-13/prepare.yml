@@ -3,6 +3,13 @@
   become: true
   gather_facts: yes
   tasks:
+    - name: Ensure apt lists directory exists
+      ansible.builtin.file:
+        path: /var/lib/apt/lists
+        state: directory
+        mode: "0755"
+      when: ansible_facts.os_family | lower == 'debian'
+
     - name: Ensure adduser present
       ansible.builtin.apt:
         name: adduser

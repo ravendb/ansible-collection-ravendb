@@ -70,6 +70,13 @@
   become: true
   gather_facts: no
   tasks:
+    - name: Ensure apt lists directory exists
+      become: true
+      ansible.builtin.file:
+        path: /var/lib/apt/lists
+        state: directory
+        mode: "0755"
+
     - name: Ensure iptables present
       become: true
       apt:
