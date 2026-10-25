@@ -289,7 +289,7 @@ class TestCloudProductReconciler(TestCase):
              patch(CPS + ".get_product_details") as get_d:
             list_p.return_value = [
                 {"id": "lower-id", "name": "app"},
-                {"id": "cap-id",   "name": "App"},
+                {"id": "cap-id", "name": "App"},
             ]
             get_d.return_value = _active_details("cap-id")
 
@@ -302,7 +302,7 @@ class TestCloudProductReconciler(TestCase):
     def test_find_existing_fails_loud_on_ambiguous_case_insensitive(self):
         with patch(CPS + ".list_products") as list_p:
             list_p.return_value = [
-                {"id": "cap-id",   "name": "App"},
+                {"id": "cap-id", "name": "App"},
                 {"id": "lower-id", "name": "app"},
             ]
             spec = self._spec(name="APP")

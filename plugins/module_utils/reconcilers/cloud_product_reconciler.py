@@ -32,6 +32,7 @@ IMMUTABLE_FIELDS = (
     ("subdomain", "subdomainName"),
 )
 
+
 def _normalize_cidrs(entries):
     if not _HAS_IPADDRESS:
         return set(entries or [])
