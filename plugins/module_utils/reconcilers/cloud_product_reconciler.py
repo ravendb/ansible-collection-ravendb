@@ -48,7 +48,8 @@ def _missing_storage_fields(spec):
     required = ["disk_size", "storage_type"]
     if (spec.storage_type or "").lower() == "ssdpremium":
         required += ["iops", "throughput"]
-    return [f for f in required if getattr(spec, f) is None]
+    missing = [f for f in required if getattr(spec, f) is None]
+    return required, missing
 
 
 def _user_storage(current, spec):
@@ -161,9 +162,23 @@ class CloudProductReconciler(object):
             matches = cps.filter_products(listing, product_id=spec.product_id)
             return matches[0] if matches else None
 
-        desired_name = (spec.name or "").lower()
-        matches = [p for p in listing if (p.get("name") or "").lower() == desired_name]
-        return matches[0] if matches else None
+        exact = [p for p in listing if p.get("name") == spec.name]
+        if exact:
+            return exact[0]
+
+        desired_lower = (spec.name or "").lower()
+        ci_matches = [p for p in listing if (p.get("name") or "").lower() == desired_lower]
+
+        if not ci_matches:
+            return None
+        if len(ci_matches) == 1:
+            return ci_matches[0]
+
+        colliding = sorted(p.get("name") for p in ci_matches)
+        raise RuntimeError(
+            "Ambiguous name '{}': multiple products match case-insensitively ({}). "
+            "Specify product_id, or use the exact case.".format(spec.name, colliding)
+        )
 
     def _reconcile_drift(self, spec, current, check_mode):
         product_id = current["id"]
@@ -213,33 +228,49 @@ class CloudProductReconciler(object):
             return max(0, deadline - time.time())
 
         user_set_any_storage = any(getattr(spec, f) is not None for f in STORAGE_FIELDS)
+        storage_would_change = False
         if user_set_any_storage:
-            missing = _missing_storage_fields(spec)
+            required, missing = _missing_storage_fields(spec)
             if missing:
                 return ModuleResult.error(
-                    msg=(
-                        "Storage change requires all of {} (SsdPremium also requires iops and "
-                        "throughput). Missing: {}."
-                    ).format(list(STORAGE_FIELDS), missing)
+                    msg="Storage change requires {}. Missing: {}.".format(required, missing)
                 )
             cur_storage = _user_storage(current, spec)
-            if (spec.disk_size != cur_storage.get("size")
-                    or spec.storage_type != cur_storage.get("type")
-                    or spec.iops != cur_storage.get("iops")):
-                if check_mode:
-                    applied.append("storage (would change)")
-                else:
-                    try:
-                        cpls.change_storage(self.client, product_id, spec.disk_size, spec.storage_type, spec.iops, spec.throughput)
-                        if spec.wait:
-                            latest_details = cpls.wait_for_product_status(self.client, product_id, "Active", _remaining())
-                        applied.append("storage" if spec.wait else "storage (initiated)")
-                    except Exception as e:
-                        return ModuleResult.error(
-                            msg="Drift partial: applied={}; storage FAILED: {}.".format(applied or ["none"], str(e))
-                        )
+            storage_would_change = (
+                spec.disk_size != cur_storage.get("size")
+                or str(spec.storage_type or "").lower() != str(cur_storage.get("type") or "").lower()
+                or spec.iops != cur_storage.get("iops")
+            )
 
-        if spec.instance_type is not None and str(spec.instance_type).lower() != str(current.get("instanceType") or "").lower():
+        instance_would_change = (
+            spec.instance_type is not None
+            and str(spec.instance_type).lower() != str(current.get("instanceType") or "").lower()
+        )
+
+        if not spec.wait and storage_would_change and instance_would_change:
+            return ModuleResult.error(
+                msg=(
+                    "wait=false reconciles only one kind of drift per run; both storage "
+                    "and instance_type would change here. Set wait=true, or run twice "
+                    "(storage first, then instance_type)."
+                )
+            )
+
+        if storage_would_change:
+            if check_mode:
+                applied.append("storage (would change)")
+            else:
+                try:
+                    cpls.change_storage(self.client, product_id, spec.disk_size, spec.storage_type, spec.iops, spec.throughput)
+                    if spec.wait:
+                        latest_details = cpls.wait_for_product_status(self.client, product_id, "Active", _remaining())
+                    applied.append("storage" if spec.wait else "storage (initiated)")
+                except Exception as e:
+                    return ModuleResult.error(
+                        msg="Drift partial: applied={}; storage FAILED: {}.".format(applied or ["none"], str(e))
+                    )
+
+        if instance_would_change:
             if check_mode:
                 applied.append("instance_type (would change)")
             else:

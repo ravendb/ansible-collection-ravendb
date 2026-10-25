@@ -284,6 +284,34 @@ class TestCloudProductReconciler(TestCase):
             self.assertFalse(res.changed)
             create_p.assert_not_called()
 
+    def test_find_existing_prefers_exact_match_over_case_insensitive(self):
+        with patch(CPS + ".list_products") as list_p, \
+             patch(CPS + ".get_product_details") as get_d:
+            list_p.return_value = [
+                {"id": "lower-id", "name": "app"},
+                {"id": "cap-id",   "name": "App"},
+            ]
+            get_d.return_value = _active_details("cap-id")
+
+            spec = self._spec(name="App")
+            res = self.reconciler.ensure_present(spec, check_mode=False)
+
+            self.assertFalse(res.changed)
+            get_d.assert_called_with(self.client, "cap-id")
+
+    def test_find_existing_fails_loud_on_ambiguous_case_insensitive(self):
+        with patch(CPS + ".list_products") as list_p:
+            list_p.return_value = [
+                {"id": "cap-id",   "name": "App"},
+                {"id": "lower-id", "name": "app"},
+            ]
+            spec = self._spec(name="APP")
+            with self.assertRaises(RuntimeError) as ctx:
+                self.reconciler.ensure_present(spec, check_mode=False)
+            self.assertIn("Ambiguous name", str(ctx.exception))
+            self.assertIn("App", str(ctx.exception))
+            self.assertIn("app", str(ctx.exception))
+
     def test_present_active_no_drift_is_noop(self):
         with patch(CPS + ".list_products") as list_p, \
              patch(CPS + ".get_product_details") as get_d:
@@ -330,6 +358,40 @@ class TestCloudProductReconciler(TestCase):
             self.assertIn("disk_size", res.msg)
             self.assertIn("storage_type", res.msg)
             chg_s.assert_not_called()
+
+    def test_storage_type_compare_is_case_insensitive(self):
+        details = _active_details("prod1")
+        details["hardwareInfo"] = {
+            "storage": {"size": 10, "iops": None, "throughput": None, "type": "SsdStandard"},
+        }
+        with patch(CPS + ".list_products") as list_p, \
+             patch(CPS + ".get_product_details") as get_d, \
+             patch(CPLS + ".change_storage") as chg_s:
+            list_p.return_value = [{"id": "prod1", "name": "my-prod"}]
+            get_d.return_value = details
+
+            spec = self._spec(disk_size=10, storage_type="ssdstandard")
+            res = self.reconciler.ensure_present(spec, check_mode=False)
+
+            self.assertFalse(res.changed)
+            self.assertIn("no drift", res.msg.lower())
+            chg_s.assert_not_called()
+
+    def test_partial_storage_message_lists_only_required_for_the_type(self):
+        with patch(CPS + ".list_products") as list_p, \
+             patch(CPS + ".get_product_details") as get_d:
+            list_p.return_value = [{"id": "prod1", "name": "my-prod"}]
+            get_d.return_value = _active_details("prod1")
+
+            spec = self._spec(storage_type="SsdStandard", iops=5000)  # disk_size missing
+            res = self.reconciler.ensure_present(spec, check_mode=False)
+
+            self.assertTrue(res.failed)
+            # Required list should be the SsdStandard pair, not the kitchen sink.
+            self.assertIn("'disk_size'", res.msg)
+            self.assertIn("'storage_type'", res.msg)
+            self.assertNotIn("'iops'", res.msg.split("Missing:")[0])
+            self.assertNotIn("'throughput'", res.msg.split("Missing:")[0])
 
     def test_present_ssdpremium_without_throughput_fails_locally(self):
         with patch(CPS + ".list_products") as list_p, \
@@ -476,6 +538,27 @@ class TestCloudProductReconciler(TestCase):
             res = self.reconciler.ensure_present(spec, check_mode=False)
 
             self.assertFalse(res.changed)
+            chg_i.assert_not_called()
+
+    def test_drift_fails_early_when_wait_false_and_both_kinds_drift(self):
+        with patch(CPS + ".list_products") as list_p, \
+             patch(CPS + ".get_product_details") as get_d, \
+             patch(CPLS + ".change_storage") as chg_s, \
+             patch(CPLS + ".change_instance_type") as chg_i:
+            list_p.return_value = [{"id": "prod1", "name": "my-prod"}]
+            get_d.return_value = _active_details("prod1")
+
+            spec = self._spec(
+                wait=False,
+                disk_size=20, storage_type="SsdStandard", iops=3000, throughput=125.0,  # storage drift
+                instance_type="PB10",                                                   # itype drift
+            )
+            res = self.reconciler.ensure_present(spec, check_mode=False)
+
+            self.assertTrue(res.failed)
+            self.assertIn("wait=false", res.msg.lower())
+            # Nothing should be POSTed when we refuse up front.
+            chg_s.assert_not_called()
             chg_i.assert_not_called()
 
     def test_drift_with_wait_false_does_not_poll(self):
