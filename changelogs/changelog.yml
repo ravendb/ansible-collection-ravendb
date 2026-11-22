@@ -82,3 +82,12 @@ releases:
           - Shared documentation fragments `ravendb.ravendb.ravendb_cloud` (api_key/api_url/check_mode) and `ravendb.ravendb.ravendb_cloud_wait` (wait/wait_timeout for async operations).
           - Live-test suite under `tests/live/cloud_*.yml` (not run in CI - driven manually against a sandbox account) covering account, metadata, product errors/info/lifecycle (aws/azure/gcp), node add/remove/restart, certificate download+drift, and full drift reconciliation.
           - Unit tests under `tests/unit/test_cloud.py` covering validation and reconciler paths (mocked API).
+
+  - name: "Release Hygiene"
+    tag: "v1.1.1"
+    version: "1.1.1"
+    changes:
+      - fixed:
+          - Rebuilt release tarball on Linux to remove the executable bit (0755) that was present on every file in 1.1.0 (artifact of building from a Windows/WSL mounted path where files default to mode 0777). Shipped files are now mode 0644.
+          - Added `build_ignore` to `galaxy.yml` so developer-only files are excluded from the published tarball (`dist/`, `inventory.ini`, `.github/`, `.gitignore`, `scripts/`, scratch logs, and Python/editor junk).
+          - No functional changes to modules, roles, or playbooks. Code is identical to 1.1.0.

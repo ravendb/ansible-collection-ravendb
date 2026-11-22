@@ -79,3 +79,10 @@ The full changelog is maintained in [changelogs/changelog.yml](./changelogs/chan
 - `ravendb.ravendb.cloud_certificate` - download the product client certificate bundle (a ZIP archive containing PKCS#12 and PEM files plus a password file) to a local path. Idempotent by byte-equality; writes with 0o600 and refuses to follow symlinks.
 - Documentation fragments `ravendb_cloud` (api_key/api_url/check_mode) and `ravendb_cloud_wait` (wait/wait_timeout).
 - Live-test suite `tests/live/cloud_*.yml` (manual only, not in CI) and unit tests `tests/unit/test_cloud.py`.
+
+## [1.1.1] - 2026-11-22
+
+### Fixed
+- Rebuilt release tarball on Linux. Removed the executable bit (0755) that was present on every file in the 1.1.0 tarball, an artifact of building from a Windows/WSL `/mnt/c` path where files default to mode 0777. Shipped files are now mode 0644.
+- Added `build_ignore` to `galaxy.yml` to exclude developer-only files from the published tarball: `dist/`, `inventory.ini`, `.github/`, `.gitignore`, `scripts/`, scratch `*.txt` logs, and Python/editor junk.
+- No functional changes to modules, roles, or playbooks. Code is identical to 1.1.0.
