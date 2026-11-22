@@ -1,6 +1,6 @@
 namespace: ravendb
 name: ravendb
-version: 1.1.0
+version: 1.1.1
 readme: README.md
 authors:
 - Grzegorz Lachowski <gregolsky@ravendb.net>
@@ -24,4 +24,15 @@ repository: https://github.com/ravendb/ansible-collection-ravendb
 documentation: https://ravendb.net/docs
 homepage: https://ravendb.net
 issues: https://github.com/ravendb/ansible-collection-ravendb/issues
-build_ignore: []
+build_ignore:
+  - dist
+  - inventory.ini
+  - .gitignore
+  - .github
+  - TEST-SEQUENCE.txt
+  - cloud_*.txt
+  - scripts
+  - "*.pyc"
+  - __pycache__
+  - .vscode
+  - .idea
